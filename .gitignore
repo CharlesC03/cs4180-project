@@ -1,0 +1,9 @@
+# Python
+*.pyc
+*.pyo
+__pycache__/
+*.py[cod]
+
+# Poetry
+__pypackages__/
+.poetry/
