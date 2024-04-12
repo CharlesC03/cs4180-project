@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "poker-agent"
+version = "0.1.0"
+description = "This is a poker agent which uses rienforcement learning to optimize its actions in poker"
+authors = ["Charles Ciampa <ceciampa@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+numpy = "^1.26.4"
+gymnasium = "^0.29.1"
+numba = "^0.59.1"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
