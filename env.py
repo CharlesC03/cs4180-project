@@ -1,32 +1,58 @@
+from collections import namedtuple, Counter
 import numpy as np
 import random
 
+Card = namedtuple('Card', ['rank', 'suit'])
+
 class PokerEnvironment:
-    def __init__(self, num_players=4):
+    def __init__(self, num_players=2, stash_size=10):
         self.num_players = num_players
-        self.reset()
+        self.players_stash = np.array([stash_size for _ in range(num_players)])  # Initial stash for each player
+        self.deck = None
+        self.community_cards = None
+        self.hands = None
+        self.current_player = None
+        self.round = None
+        
+    def __get_community_cards(self):
+        return self.community_cards[:{0:0, 1:3, 2:4, 3:5}[self.round]]
+    
+    def __get_player_state(self):
+        return self.__get_community_cards(), self.current_player, self.players_stash[self.current_player], self.hands[self.current_player]
 
     def reset(self):
-        self.deck = self.create_deck()
-        self.hands = [self.deal_hand() for _ in range(self.num_players)]
+        self.reset_deck()
+        self.hands = [[self.__get_card() for _ in range(2)] for _ in range(self.num_players)]
+        self.community_cards = [self.__get_card() for _ in range(5)]
         self.current_player = 0
         self.round = 0  # Round 0 is before flop
-
-    def create_deck(self):
-        suits = ['H', 'D', 'C', 'S']
-        ranks = [str(i) for i in range(2, 11)] + ['J', 'Q', 'K', 'A']
-        deck = [rank + suit for suit in suits for rank in ranks]
+        print(self.__best_player_hand())
+        return self.__get_player_state()
+    
+    def reset_deck(self):
+        deck = [Card(rank, suit) for rank in range(1,14) for suit in ['H', 'D', 'C', 'S']]
         random.shuffle(deck)
-        return deck
+        self.deck = deck
+    
+    def __best_player_hand(self):
+        cards = self.hands[self.current_player] + self.community_cards
+        suit_info = Counter([card.suit for card in cards])
+        rank_info = Counter([card.rank for card in cards])
+        flush = max(suit_info.values()) >= 5
+        straight = False
+        if max(rank_info.keys()) < 3:
+            print("Possible straight")
+        # print(rank_info)
+        # print(sorted(rank_info.keys(), reverse=True))
+    
+    def __get_card(self):
+        return self.deck.pop()
 
-    def deal_hand(self):
-        hand = [self.deck.pop() for _ in range(2)]
-        return hand
-
-    def get_current_player_hand(self):
-        return self.hands[self.current_player]
+    def get_current_player_hand(self, player):
+        return self.hands[player]
 
     def step(self, action):
+        # Action: 0 for fold, 1 for call, 2 for raise, 3 for all-in
         # For simplicity, action space is 0 for fold, 1 for call/check/raise
         if action == 0:
             # Fold
@@ -60,6 +86,7 @@ class PokerEnvironment:
 # To run
 if __name__ == "__main__":
     env = PokerEnvironment()
+    state = env.reset()
     env.render()
     done = False
     # Need DQN agent
