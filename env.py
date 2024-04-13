@@ -30,20 +30,52 @@ class PokerEnvironment:
         return self.__get_player_state()
     
     def reset_deck(self):
-        deck = [Card(rank, suit) for rank in range(1,14) for suit in ['H', 'D', 'C', 'S']]
+        deck = [Card(rank, suit) for rank in range(1,13) for suit in ['H', 'D', 'C', 'S']]
         random.shuffle(deck)
         self.deck = deck
     
+    # Returns the flush if it exists
+    def __find_flush(self, cards: list[Card], suit_info: Counter) -> list[Card]:
+        if max(suit_info.values()) >= 5:
+            return [card for card in cards if suit_info[card.suit] >= 5]
+        return []
+    
+    # Returns the straight if it exists
+    def __find_straights(self, cards: list[Card], rank_info: Counter) -> list[Card]:
+        if len(rank_info) < 5:
+            return []
+        straights = []
+        for i, card in enumerate(cards):
+            if all([n in rank_info for n in range(card.rank, card.rank-5, -1)]):
+                straights.append(cards[i:i+5])
+        return straights
+        
+    def __find_straight_flush(self, flush: list[Card]) -> list[Card]:
+        if len(flush) == 0:
+            return []
+        rank_info = Counter([card.rank for card in flush])
+        return self.__find_straights(flush, rank_info)
+    
+    # Make this return as soon as we get a hand
+    # Check hands in order of best to worst
     def __best_player_hand(self):
-        cards = self.hands[self.current_player] + self.community_cards
+        cards = [Card(1, 'D'), Card(13, 'D'), Card(11, 'D'), Card(12, 'D'), Card(10, 'D'), Card(9, 'D'), Card(8, 'D'), Card(7, 'S'), Card(6, 'S'), Card(5, 'C')]
+        cards = sorted(cards, key=lambda x: x.rank, reverse=True)
+        
         suit_info = Counter([card.suit for card in cards])
         rank_info = Counter([card.rank for card in cards])
-        flush = max(suit_info.values()) >= 5
-        straight = False
-        if max(rank_info.keys()) < 3:
-            print("Possible straight")
-        # print(rank_info)
-        # print(sorted(rank_info.keys(), reverse=True))
+        rank_info[14] = rank_info[1]
+        # Get highest flush
+        # flush = {suit: suit_info[suit] for suit in suit_info if suit_info[suit] >= 5}
+        # flush =  if len(flush) > 0 else 0
+        flush = self.__find_flush(cards, suit_info)
+        straights = self.__find_straights(flush, rank_info)
+        if len(straights) == 0:
+            straights = self.__find_straights(cards, rank_info)
+        print(f"Cards: {cards}")
+        print(f"Straights: {straights}")
+        # print(f"Straight: {straight}")
+        print(f"Flush: {flush}")
     
     def __get_card(self):
         return self.deck.pop()
@@ -78,7 +110,7 @@ class PokerEnvironment:
         return state, reward, done, {}
 
     def render(self):
-        print(f"Round: {self.round}, Current Player: {self.current_player}, Hands: {self.hands}")
+        print(f"Round: {self.round}, Current Player: {self.current_player}, Hands: {self.hands}, Community Cards: {self.__get_community_cards()}")
 
     def close(self):
         pass
@@ -87,10 +119,10 @@ class PokerEnvironment:
 if __name__ == "__main__":
     env = PokerEnvironment()
     state = env.reset()
-    env.render()
-    done = False
-    # Need DQN agent
-    while not done:
-        action = np.random.randint(0, 2)  # Random action for now
-        state, reward, done, _ = env.step(action)
-        env.render()
+    # env.render()
+    # done = False
+    # # Need DQN agent
+    # while not done:
+    #     action = np.random.randint(0, 2)  # Random action for now
+    #     state, reward, done, _ = env.step(action)
+    #     env.render()
