@@ -1,49 +1,61 @@
-from collections import namedtuple, Counter
+import bisect
+from collections import namedtuple, Counter, defaultdict
+import heapq
 import numpy as np
 import random
 
-Card = namedtuple('Card', ['rank', 'suit'])
+Card = namedtuple("Card", ["rank", "suit"])
+
 
 class PokerEnvironment:
     def __init__(self, num_players=2, stash_size=10):
         self.num_players = num_players
-        self.players_stash = np.array([stash_size for _ in range(num_players)])  # Initial stash for each player
+        self.players_stash = np.array(
+            [stash_size for _ in range(num_players)]
+        )  # Initial stash for each player
         self.deck = None
         self.community_cards = None
         self.hands = None
         self.current_player = None
         self.round = None
-        
+
     def __get_community_cards(self):
-        return self.community_cards[:{0:0, 1:3, 2:4, 3:5}[self.round]]
-    
+        return self.community_cards[: {0: 0, 1: 3, 2: 4, 3: 5}[self.round]]
+
     def __get_player_state(self):
-        return self.__get_community_cards(), self.current_player, self.players_stash[self.current_player], self.hands[self.current_player]
+        return (
+            self.__get_community_cards(),
+            self.current_player,
+            self.players_stash[self.current_player],
+            self.hands[self.current_player],
+        )
 
     def reset(self):
         self.reset_deck()
-        self.hands = [[self.__get_card() for _ in range(2)] for _ in range(self.num_players)]
+        self.hands = [
+            [self.__get_card() for _ in range(2)] for _ in range(self.num_players)
+        ]
         self.community_cards = [self.__get_card() for _ in range(5)]
         self.current_player = 0
         self.round = 0  # Round 0 is before flop
-        print(self.__best_player_hand())
+        print(f"Community Cards: {self.community_cards}")
+        print(f"Hands: {self.hands}")
+        print(f"Best Hand(s): {self.__best_player_hand()}")
         return self.__get_player_state()
-    
+
     def reset_deck(self):
-        deck = [Card(rank, suit) for rank in range(1,13) for suit in ['H', 'D', 'C', 'S']]
+        deck = [
+            Card(rank, suit) for rank in range(1, 13) for suit in ["H", "D", "C", "S"]
+        ]
         random.shuffle(deck)
         self.deck = deck
-    
+
     # Returns the flush if it exists
     def __find_flush(self, cards: list[Card], suit_info: Counter) -> list[Card]:
         if max(suit_info.values()) >= 5:
-            flushs = []
-            for suit in suit_info:
-                if suit_info[suit] >= 5:
-                    flushs.append([card for card in cards if card.suit == suit])
-            return flushs#[card for card in cards if suit_info[card.suit] >= 5]
+            return [card for card in cards if suit_info[card.suit] >= 5]
         return []
-    
+
     # Returns the straight if it exists
     def __find_straights(self, cards: list[Card], rank_info: Counter) -> list[Card]:
         if len(rank_info) < 5:
@@ -51,42 +63,112 @@ class PokerEnvironment:
         straights = []
         for i in reversed(range(len(cards))):
             card = cards[i]
-            if all([n in rank_info for n in range(card.rank, card.rank+5)]):
+            if all([n in rank_info for n in range(card.rank, card.rank + 5)]):
                 s = [card]
                 for c in reversed(cards[:i]):
-                    if c.rank in range(card.rank, card.rank+5) and (c not in s or c.rank not in [r.rank for r in s]):
+                    if c.rank in range(card.rank, card.rank + 5) and (
+                        c not in s or c.rank not in [r.rank for r in s]
+                    ):
                         s.insert(0, c)
                 if card.rank + 4 == 14:
-                    s.insert(0, (Card(14, card.suit) if Card(1, card.suit) in cards else cards[-1]))
-                straights.append(s)
-        return list(reversed(straights))
-    
+                    s.insert(
+                        0,
+                        Card(
+                            14,
+                            card.suit
+                            if Card(1, card.suit) in cards
+                            else cards[-1].suit,
+                        ),
+                    )
+                straights.insert(0, s)
+        return straights
+
+    def __compare_hands(self, ref, hand):
+        if len(ref) != len(hand):
+            return 0b00
+        for r, v in zip(ref, hand):
+            if r > v:
+                return 0b01
+            if v > r:
+                return 0b10
+        return 0b11
+
     # Make this return as soon as we get a hand
     # Check hands in order of best to worst
     def __best_player_hand(self):
-        # best_players = []
-        # best_hand = None
-        cards = [Card(1, 'D'), Card(13, 'D'), Card(11, 'D'), Card(12, 'D'), Card(10, 'D'), Card(9, 'D'), Card(8, 'D'), Card(7, 'S'), Card(6, 'S'), Card(5, 'C')]
-        cards = sorted(cards, key=lambda x: x.rank, reverse=True)
-        
-        suit_info = Counter([card.suit for card in cards])
-        rank_info = Counter([card.rank for card in cards])
-        rank_info[14] = rank_info[1]
-        # Get highest flush
-        # flush = {suit: suit_info[suit] for suit in suit_info if suit_info[suit] >= 5}
-        # flush =  if len(flush) > 0 else 0
-        flush = self.__find_flush(cards, suit_info)
-        straights = []
-        if len(flush) > 0:
-            straights = self.__find_straights([e for l in flush for e in l], rank_info)
-        if len(straights) == 0:
-            straights = self.__find_straights(cards, rank_info)
-        same_kind = [card for card in cards if rank_info[card.rank] >= 2]
-        print(f"Cards: {cards}")
-        print(f"Straights: {straights}")
-        print(f"Flush: {flush}")
-        print(f"Same Kind: {same_kind}")
-    
+        best_players = []
+        best_hand_rating = 9
+        best_rank = None
+        # hand ranking: Straight Flush: 0, Four of a Kind: 1, Full House: 2, Flush: 3, Straight: 4, Three of a Kind: 5, Two Pair: 6, One Pair: 7, High Card: 8
+        for player in range(self.num_players):
+            cards = self.hands[player] + self.community_cards
+            cards = sorted(cards, key=lambda x: x.rank, reverse=True)
+
+            suit_info = Counter([card.suit for card in cards])
+            rank_info = Counter([card.rank for card in cards])
+            rank_info[14] = rank_info[1]
+            # Get highest flush
+            flush = self.__find_flush(cards, suit_info)
+            straights = []
+            if len(flush) > 0:
+                straights = self.__find_straights(flush, rank_info)
+            same_rank_info = defaultdict(list)
+            {bisect.insort(same_rank_info[v], k) for k, v in rank_info.items()}
+            check_func = {
+                0: lambda: len(straights),  # straight flush
+                1: lambda: len(same_rank_info[4]),  # four of a kind
+                2: lambda: (  # full house
+                    (len(same_rank_info[3]) and len(same_rank_info[2]))
+                    or len(same_rank_info[3]) > 1
+                ),
+                3: lambda: len(flush),  # flush
+                4: lambda: len(straights),  # straight
+                5: lambda: len(same_rank_info[3]),  # three of a kind
+                6: lambda: len(same_rank_info[2]) > 1,  # two pair
+                7: lambda: len(same_rank_info[2]),  # one pair
+                8: lambda: True,  # high card
+            }
+            get_info_func = {
+                0: lambda: (straights[0][0].rank),  # straight flush
+                1: lambda: (  # four of a kind
+                    same_rank_info[4][0],
+                    max((rank for rank in rank_info if rank != same_rank_info[4][0])),
+                ),
+                2: lambda: (  # full house
+                    same_rank_info[3][0],
+                    max((same_rank_info[2][0], *same_rank_info[3][1:2])),
+                ),
+                3: lambda: flush[:5],  # flush
+                4: lambda: (straights[0][0]),  # straight
+                5: lambda: (
+                    same_rank_info[3][0],
+                    *same_rank_info[1][:2],
+                ),  # three of a kind
+                6: lambda: (*same_rank_info[2][:2], same_rank_info[1][0]),  # two pair
+                7: lambda: (same_rank_info[2][0], same_rank_info[1][:3]),  # one pair
+                8: lambda: same_rank_info[1][:5],  # high card
+            }
+            for level in range(best_hand_rating + 1):
+                if check_func[level]():
+                    ranking_info = get_info_func[level]()
+                    if best_hand_rating > level:
+                        best_hand_rating = level
+                        best_rank = ranking_info
+                        best_players = [player]
+                    else:
+                        better_hand = self.__compare_hands(best_rank, ranking_info)
+                        if better_hand & 0b10:
+                            if better_hand == 0b11:
+                                best_players.append(player)
+                            else:
+                                best_rank = ranking_info
+                                best_players = [player]
+                    break
+                if level == 3:
+                    straights = self.__find_straights(cards, rank_info)
+            # print(f"Best Hand: {best_hand_rating}, Best Rank: {best_rank}")
+        return best_players
+
     def __get_card(self):
         return self.deck.pop()
 
@@ -120,10 +202,13 @@ class PokerEnvironment:
         return state, reward, done, {}
 
     def render(self):
-        print(f"Round: {self.round}, Current Player: {self.current_player}, Hands: {self.hands}, Community Cards: {self.__get_community_cards()}")
+        print(
+            f"Round: {self.round}, Current Player: {self.current_player}, Hands: {self.hands}, Community Cards: {self.__get_community_cards()}"
+        )
 
     def close(self):
         pass
+
 
 # To run
 if __name__ == "__main__":
