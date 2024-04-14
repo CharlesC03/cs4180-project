@@ -9,26 +9,35 @@ Card = namedtuple("Card", ["rank", "suit"])
 
 
 class PokerEnvironment:
-    def __init__(self, num_players=2, stash_size=10):
+    def __init__(self, num_players=2, minimum_bet=2, stash_size=10):
         self.num_players = num_players
+        self.init_stash_size = stash_size
         self.players_stash = np.array(
-            [stash_size for _ in range(num_players)]
+            [self.init_stash_size for _ in range(num_players)]
         )  # Initial stash for each player
+        self.initial_player_stashes = self.players_stash.copy()
+        self.active_players = []
+        self.pot = 0
         self.deck = None
         self.community_cards = None
+        self.current_bet = None
+        self.active_player_bets = np.empty(self.num_players)
+        self.minimum_bet = minimum_bet
+        self.bet_leader = None
+        self.leader = 0
         self.hands = None
         self.current_player = None
         self.round = None
 
     def __get_community_cards(self):
-        return self.community_cards[: {0: 0, 1: 3, 2: 4, 3: 5}[self.round]]
+        return self.community_cards[: {0: 0, 1: 3, 2: 4, 3: 5, 4: 5}[self.round]]
 
-    def __get_player_state(self):
+    def __get_player_state(self, player):
         return (
             self.__get_community_cards(),
-            self.current_player,
-            self.players_stash[self.current_player],
-            self.hands[self.current_player],
+            player,
+            self.players_stash[player],
+            self.hands[player],
         )
 
     def reset(self):
@@ -37,12 +46,20 @@ class PokerEnvironment:
             [self.__get_card() for _ in range(2)] for _ in range(self.num_players)
         ]
         self.community_cards = [self.__get_card() for _ in range(5)]
-        self.current_player = 0
+        self.current_player = self.leader
+        self.bet_leader = self.leader
+        self.initial_player_stashes = self.players_stash.copy()
+        self.active_players = [
+            i for i in range(self.num_players) if self.players_stash[i] > 0
+        ]
+        self.current_bet = 0
+        self.active_player_bets = np.empty(self.num_players)
+        # self.pot = 0
         self.round = 0  # Round 0 is before flop
         print(f"Community Cards: {self.community_cards}")
         print(f"Hands: {self.hands}")
         print(f"Best Hand(s): {self.__best_player_hand(range(self.num_players))}")
-        return self.__get_player_state()
+        return self.__get_player_state(self.current_player)
 
     def reset_deck(self):
         deck = [
@@ -180,31 +197,120 @@ class PokerEnvironment:
     def get_current_player_hand(self, player):
         return self.hands[player]
 
+    def __stash_to_pot(self, player, amount):
+        if self.players_stash[player] < amount:
+            self.pot += self.players_stash[player]
+            self.players_stash[player] = 0
+        else:
+            self.pot += amount
+            self.active_player_bets[player] += amount
+            self.players_stash[player] -= amount
+
+    def __pot_to_stash(self, players):
+        split = self.pot // len(players)
+        for player in players:
+            self.players_stash[player] += split
+            self.pot -= split
+
     def step(self, action):
         # Action: 0 for fold, 1 for call, 2 for raise, 3 for all-in
         # For simplicity, action space is 0 for fold, 1 for call/check/raise
-        if action == 0:
+        reward = 0
+        done = False
+        if self.round == 4:
+            reward = (
+                self.players_stash[self.current_player]
+                - self.initial_player_stashes[self.current_player]
+            )
+        elif action == 0:
             # Fold
             reward = -1  # Penalize folding
-            done = True
+            self.active_players.remove(self.current_player)
+            if self.current_player == self.bet_leader:
+                self.bet_leader = self.active_players[
+                    (self.active_players.index(self.current_player) + 1)
+                    % len(self.active_players)
+                ]
+        elif action == 1:
+            # Call
+            self.__stash_to_pot(
+                self.current_player,
+                self.current_bet - self.active_player_bets[self.current_player],
+            )
+        elif action == 2:
+            # Raise
+            bet_raise = min(
+                self.players_stash[self.current_player],
+                max(self.minimum_bet, self.current_bet * 2),
+            )
+            self.__stash_to_pot(
+                self.current_player,
+                bet_raise - self.active_player_bets[self.current_player],
+            )
+            if bet_raise > self.current_bet:
+                self.current_bet = bet_raise
+                self.bet_leader = self.current_player
+        elif action == 3:
+            # All-in
+            if self.players_stash[self.current_player] > self.current_bet:
+                self.current_bet = self.players_stash[self.current_player]
+                self.bet_leader = self.current_player
+            self.__stash_to_pot(
+                self.current_player, self.players_stash[self.current_player]
+            )
         else:
-            # Call/Check/Raise - For simplicity, consider this action as 'call' for now
-            reward = 0  # No reward or penalty for calling
-            done = False
+            raise ValueError("Invalid action")
 
         # Move to the next player
-        self.current_player = (self.current_player + 1) % self.num_players
+        self.current_player = self.active_players[
+            (self.active_players.index(self.current_player) + 1)
+            % len(self.active_players)
+        ]
+        while (
+            self.round < 4
+            and self.players_stash[self.current_player] == 0
+            and self.current_player != self.bet_leader
+        ):
+            self.current_player = self.active_players[
+                (self.active_players.index(self.current_player) + 1)
+                % len(self.active_players)
+            ]
 
-        # If all players have made their decision, proceed to the next round or end the game
-        if self.current_player == 0:
-            self.round += 1
-            if self.round == 4:  # End of game
+        if self.current_player == self.bet_leader:
+            if self.round == 4:
                 done = True
+                if not self.game_over:
+                    self.leader = (self.leader + 1) % self.num_players
+                    while self.players_stash[self.leader] == 0:
+                        self.leader = (self.leader + 1) % self.num_players
+            elif self.round == 3:
+                # End of game
+                winners = self.__best_player_hand(self.active_players)
+                self.__pot_to_stash(winners)
+                self.round += 1
+            else:
+                self.__reset_bets()
 
-        # State Representation (? for DQN, but not useful right now)
-        state = np.zeros((1, 1))
+        return self.__get_player_state(self.current_player), reward, done, {}
 
-        return state, reward, done, {}
+    @property
+    def game_over(self):
+        return (self.round == 4 or self.round == 0) and sum(
+            p for p in range(self.num_players) if self.players_stash[p] > 0
+        ) <= 1
+
+    def __reset_bets(self):
+        self.current_bet = 0
+        self.active_player_bets = np.zeros(self.num_players)
+        if self.leader in self.active_players:
+            self.bet_leader = self.leader
+        else:
+            self.bet_leader = self.active_players[
+                (bisect.bisect(self.active_players, self.leader) + 1)
+                % len(self.active_players)
+            ]
+        self.current_player = self.bet_leader
+        self.round += 1
 
     def render(self):
         print(
@@ -219,10 +325,10 @@ class PokerEnvironment:
 if __name__ == "__main__":
     env = PokerEnvironment()
     state = env.reset()
-    # env.render()
-    # done = False
-    # # Need DQN agent
-    # while not done:
-    #     action = np.random.randint(0, 2)  # Random action for now
-    #     state, reward, done, _ = env.step(action)
-    #     env.render()
+    env.render()
+    done = False
+    # Need DQN agent
+    while not done:
+        action = np.random.randint(1, 3)  # Random action for now
+        state, reward, done, _ = env.step(action)
+        env.render()
