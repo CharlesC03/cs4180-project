@@ -1,6 +1,7 @@
 import bisect
 from collections import namedtuple, Counter, defaultdict
-import heapq
+
+# import heapq
 import numpy as np
 import random
 
@@ -45,7 +46,7 @@ class PokerEnvironment:
 
     def reset_deck(self):
         deck = [
-            Card(rank, suit) for rank in range(1, 13) for suit in ["H", "D", "C", "S"]
+            Card(rank, suit) for rank in range(2, 15) for suit in ["H", "D", "C", "S"]
         ]
         random.shuffle(deck)
         self.deck = deck
@@ -60,28 +61,30 @@ class PokerEnvironment:
     def __find_straights(self, cards: list[Card], rank_info: Counter) -> list[Card]:
         if len(rank_info) < 5:
             return []
-        straights = []
-        for i in reversed(range(len(cards))):
-            card = cards[i]
-            if all([n in rank_info for n in range(card.rank, card.rank + 5)]):
+        for i, card in enumerate(cards):
+            if all(
+                [
+                    n in rank_info or (n == 1 and 14 in rank_info)
+                    for n in range(card.rank, card.rank - 5, -1)
+                ]
+            ):
                 s = [card]
-                for c in reversed(cards[:i]):
-                    if c.rank in range(card.rank, card.rank + 5) and (
+                for c in cards[i:]:
+                    if c.rank > card.rank - 5 and (
                         c not in s or c.rank not in [r.rank for r in s]
                     ):
-                        s.insert(0, c)
-                if card.rank + 4 == 14:
-                    s.insert(
-                        0,
+                        s.append(c)
+                if len(s) < 5 and 14 in rank_info:
+                    s.append(
                         Card(
-                            14,
+                            1,
                             card.suit
-                            if Card(1, card.suit) in cards
-                            else cards[-1].suit,
-                        ),
+                            if Card(14, card.suit) in cards
+                            else cards[0].suit,
+                        )
                     )
-                straights.insert(0, s)
-        return straights
+                return s
+        return []
 
     def __compare_hands(self, ref, hand):
         if len(ref) != len(hand):
@@ -106,14 +109,16 @@ class PokerEnvironment:
 
             suit_info = Counter([card.suit for card in cards])
             rank_info = Counter([card.rank for card in cards])
-            rank_info[14] = rank_info[1]
             # Get highest flush
             flush = self.__find_flush(cards, suit_info)
             straights = []
             if len(flush) > 0:
                 straights = self.__find_straights(flush, rank_info)
             same_rank_info = defaultdict(list)
-            {bisect.insort(same_rank_info[v], k) for k, v in rank_info.items()}
+            {
+                bisect.insort(same_rank_info[v], k, key=lambda x: -x)
+                for k, v in rank_info.items()
+            }
             check_func = {
                 0: lambda: len(straights),  # straight flush
                 1: lambda: len(same_rank_info[4]),  # four of a kind
@@ -129,7 +134,7 @@ class PokerEnvironment:
                 8: lambda: True,  # high card
             }
             get_info_func = {
-                0: lambda: (straights[0][0].rank),  # straight flush
+                0: lambda: (straights[0].rank,),  # straight flush
                 1: lambda: (  # four of a kind
                     same_rank_info[4][0],
                     max((rank for rank in rank_info if rank != same_rank_info[4][0])),
@@ -139,13 +144,13 @@ class PokerEnvironment:
                     max((same_rank_info[2][0], *same_rank_info[3][1:2])),
                 ),
                 3: lambda: flush[:5],  # flush
-                4: lambda: (straights[0][0]),  # straight
+                4: lambda: (straights[0].rank,),  # straight
                 5: lambda: (
                     same_rank_info[3][0],
                     *same_rank_info[1][:2],
                 ),  # three of a kind
                 6: lambda: (*same_rank_info[2][:2], same_rank_info[1][0]),  # two pair
-                7: lambda: (same_rank_info[2][0], same_rank_info[1][:3]),  # one pair
+                7: lambda: (same_rank_info[2][0], *same_rank_info[1][:3]),  # one pair
                 8: lambda: same_rank_info[1][:5],  # high card
             }
             for level in range(best_hand_rating + 1):
@@ -166,7 +171,7 @@ class PokerEnvironment:
                     break
                 if level == 3:
                     straights = self.__find_straights(cards, rank_info)
-            # print(f"Best Hand: {best_hand_rating}, Best Rank: {best_rank}")
+        # print(f"Best Hand: {best_hand_rating}, Best Rank: {best_rank}")
         return best_players
 
     def __get_card(self):
