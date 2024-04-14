@@ -37,7 +37,11 @@ class PokerEnvironment:
     # Returns the flush if it exists
     def __find_flush(self, cards: list[Card], suit_info: Counter) -> list[Card]:
         if max(suit_info.values()) >= 5:
-            return [card for card in cards if suit_info[card.suit] >= 5]
+            flushs = []
+            for suit in suit_info:
+                if suit_info[suit] >= 5:
+                    flushs.append([card for card in cards if card.suit == suit])
+            return flushs#[card for card in cards if suit_info[card.suit] >= 5]
         return []
     
     # Returns the straight if it exists
@@ -45,20 +49,23 @@ class PokerEnvironment:
         if len(rank_info) < 5:
             return []
         straights = []
-        for i, card in enumerate(cards):
-            if all([n in rank_info for n in range(card.rank, card.rank-5, -1)]):
-                straights.append(cards[i:i+5])
-        return straights
-        
-    def __find_straight_flush(self, flush: list[Card]) -> list[Card]:
-        if len(flush) == 0:
-            return []
-        rank_info = Counter([card.rank for card in flush])
-        return self.__find_straights(flush, rank_info)
+        for i in reversed(range(len(cards))):
+            card = cards[i]
+            if all([n in rank_info for n in range(card.rank, card.rank+5)]):
+                s = [card]
+                for c in reversed(cards[:i]):
+                    if c.rank in range(card.rank, card.rank+5) and (c not in s or c.rank not in [r.rank for r in s]):
+                        s.insert(0, c)
+                if card.rank + 4 == 14:
+                    s.insert(0, (Card(14, card.suit) if Card(1, card.suit) in cards else cards[-1]))
+                straights.append(s)
+        return list(reversed(straights))
     
     # Make this return as soon as we get a hand
     # Check hands in order of best to worst
     def __best_player_hand(self):
+        # best_players = []
+        # best_hand = None
         cards = [Card(1, 'D'), Card(13, 'D'), Card(11, 'D'), Card(12, 'D'), Card(10, 'D'), Card(9, 'D'), Card(8, 'D'), Card(7, 'S'), Card(6, 'S'), Card(5, 'C')]
         cards = sorted(cards, key=lambda x: x.rank, reverse=True)
         
@@ -69,13 +76,16 @@ class PokerEnvironment:
         # flush = {suit: suit_info[suit] for suit in suit_info if suit_info[suit] >= 5}
         # flush =  if len(flush) > 0 else 0
         flush = self.__find_flush(cards, suit_info)
-        straights = self.__find_straights(flush, rank_info)
+        straights = []
+        if len(flush) > 0:
+            straights = self.__find_straights([e for l in flush for e in l], rank_info)
         if len(straights) == 0:
             straights = self.__find_straights(cards, rank_info)
+        same_kind = [card for card in cards if rank_info[card.rank] >= 2]
         print(f"Cards: {cards}")
         print(f"Straights: {straights}")
-        # print(f"Straight: {straight}")
         print(f"Flush: {flush}")
+        print(f"Same Kind: {same_kind}")
     
     def __get_card(self):
         return self.deck.pop()
