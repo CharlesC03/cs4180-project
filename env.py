@@ -40,7 +40,7 @@ class PokerEnvironment:
         self.round = 0  # Round 0 is before flop
         print(f"Community Cards: {self.community_cards}")
         print(f"Hands: {self.hands}")
-        print(f"Best Hand(s): {self.__best_player_hand()}")
+        print(f"Best Hand(s): {self.__best_player_hand(range(self.num_players))}")
         return self.__get_player_state()
 
     def reset_deck(self):
@@ -95,12 +95,12 @@ class PokerEnvironment:
 
     # Make this return as soon as we get a hand
     # Check hands in order of best to worst
-    def __best_player_hand(self):
+    def __best_player_hand(self, players):
         best_players = []
         best_hand_rating = 9
         best_rank = None
         # hand ranking: Straight Flush: 0, Four of a Kind: 1, Full House: 2, Flush: 3, Straight: 4, Three of a Kind: 5, Two Pair: 6, One Pair: 7, High Card: 8
-        for player in range(self.num_players):
+        for player in players:
             cards = self.hands[player] + self.community_cards
             cards = sorted(cards, key=lambda x: x.rank, reverse=True)
 
