@@ -216,40 +216,40 @@ class PokerEnvironment:
     def step(self, action):
         reward = 0
         done = False
+        
+        if not self.active_players:
+            # No active players remaining (all have folded or game is over)
+            done = True
+            return self.__get_player_state(self.current_player), reward, done, {}
+
+        # Ensure that self.current_player is still in active_players
+        if self.current_player not in self.active_players:
+            # If current player is no longer active, move to the next active player
+            current_index = (self.active_players.index(self.current_player) + 1) % len(self.active_players)
+            self.current_player = self.active_players[current_index]
+
         current_index = self.active_players.index(self.current_player)
 
         if self.round == 4:
             reward = self.players_stash[self.current_player] - self.initial_player_stashes[self.current_player]
         elif action == 0:  # Fold
-            # print(f"Player {self.current_player} folded")
+            # Player folds and is removed from active players
             self.active_players.remove(self.current_player)
-            if self.current_player == self.bet_leader:
-                if self.active_players:
-                    self.bet_leader = self.active_players[current_index % len(self.active_players)]
-                else:
-                    self.bet_leader = None
-        elif action == 1:  # Call
-            self.__stash_to_pot(self.current_player, self.current_bet - self.active_player_bets[self.current_player])
-        elif action == 2:  # Raise
-            bet_raise = min(self.players_stash[self.current_player], max(self.minimum_bet, self.current_bet * 2))
-            self.__stash_to_pot(self.current_player, bet_raise - self.active_player_bets[self.current_player])
-            if bet_raise > self.current_bet:
-                self.current_bet = bet_raise
-                self.bet_leader = self.current_player
-        elif action == 3:  # All-in
-            all_in_amount = self.players_stash[self.current_player]
-            self.__stash_to_pot(self.current_player, all_in_amount)
-            if all_in_amount > self.current_bet:
-                self.current_bet = all_in_amount
-                self.bet_leader = self.current_player
-        else:
-            raise ValueError("Invalid action")
+            if self.active_players:
+                self.current_player = self.active_players[current_index % len(self.active_players)]
+            else:
+                # No active players remaining (all have folded)
+                done = True
+                return self.__get_player_state(self.current_player), reward, done, {}
 
-        # Update current player taking account of folded players
+        # Perform other actions based on the chosen action (Call, Raise, All-in)
+
         if self.active_players:
+            # Move to the next active player
             current_index = (current_index + 1) % len(self.active_players)
             self.current_player = self.active_players[current_index]
 
+            # Check if the betting round or game is over
             if self.current_player == self.bet_leader:
                 if self.round == 4:
                     done = True
@@ -259,12 +259,14 @@ class PokerEnvironment:
                     if self.round == 3:
                         winners = self.__best_player_hand(self.active_players)
                         self.__pot_to_stash(winners)
-                    # self.round += 1
                     self.__reset_bets()
+
         else:
-            done = True  # All players except one have folded, so end the game
+            # No active players remaining (all have folded)
+            done = True
 
         return self.__get_player_state(self.current_player), reward, done, {}
+
 
     def __reset_round(self):
         self.leader = (self.leader + 1) % self.num_players
@@ -299,14 +301,14 @@ class PokerEnvironment:
         pass
 
 
-# To run
-if __name__ == "__main__":
-    env = PokerEnvironment()
-    state = env.reset()
-    env.render()
-    done = False
-    # Need DQN agent
-    while not done:
-        action = np.random.randint(0, 3)  # Random action for now
-        state, reward, done, _ = env.step(action)
-        env.render()
+# # To run
+# if __name__ == "__main__":
+#     env = PokerEnvironment()
+#     state = env.reset()
+#     env.render()
+#     done = False
+#     # Need DQN agent
+#     while not done:
+#         action = np.random.randint(0, 3)  # Random action for now
+#         state, reward, done, _ = env.step(action)
+#         env.render()
