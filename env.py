@@ -21,7 +21,7 @@ class PokerEnvironment:
         self.deck = None
         self.community_cards = None
         self.current_bet = None
-        self.active_player_bets = np.empty(self.num_players)
+        self.active_player_bets = np.zeros(self.num_players)
         self.minimum_bet = minimum_bet
         self.bet_leader = None
         self.leader = 0
@@ -53,7 +53,7 @@ class PokerEnvironment:
             i for i in range(self.num_players) if self.players_stash[i] > 0
         ]
         self.current_bet = 0
-        self.active_player_bets = np.empty(self.num_players)
+        self.active_player_bets = np.zeros(self.num_players)
         # self.pot = 0
         self.round = 0  # Round 0 is before flop
         print(f"Community Cards: {self.community_cards}")
@@ -205,6 +205,7 @@ class PokerEnvironment:
             self.pot += amount
             self.active_player_bets[player] += amount
             self.players_stash[player] -= amount
+            self.players_stash[player] -= amount
 
     def __pot_to_stash(self, players):
         split = self.pot // len(players)
@@ -213,85 +214,62 @@ class PokerEnvironment:
             self.pot -= split
 
     def step(self, action):
-        # Action: 0 for fold, 1 for call, 2 for raise, 3 for all-in
-        # For simplicity, action space is 0 for fold, 1 for call/check/raise
         reward = 0
         done = False
+        current_index = self.active_players.index(self.current_player)
+
         if self.round == 4:
-            reward = (
-                self.players_stash[self.current_player]
-                - self.initial_player_stashes[self.current_player]
-            )
-        elif action == 0:
-            # Fold
-            reward = -1  # Penalize folding
+            reward = self.players_stash[self.current_player] - self.initial_player_stashes[self.current_player]
+        elif action == 0:  # Fold
+            # print(f"Player {self.current_player} folded")
             self.active_players.remove(self.current_player)
             if self.current_player == self.bet_leader:
-                self.bet_leader = self.active_players[
-                    (self.active_players.index(self.current_player) + 1)
-                    % len(self.active_players)
-                ]
-        elif action == 1:
-            # Call
-            self.__stash_to_pot(
-                self.current_player,
-                self.current_bet - self.active_player_bets[self.current_player],
-            )
-        elif action == 2:
-            # Raise
-            bet_raise = min(
-                self.players_stash[self.current_player],
-                max(self.minimum_bet, self.current_bet * 2),
-            )
-            self.__stash_to_pot(
-                self.current_player,
-                bet_raise - self.active_player_bets[self.current_player],
-            )
+                if self.active_players:
+                    self.bet_leader = self.active_players[current_index % len(self.active_players)]
+                else:
+                    self.bet_leader = None
+        elif action == 1:  # Call
+            self.__stash_to_pot(self.current_player, self.current_bet - self.active_player_bets[self.current_player])
+        elif action == 2:  # Raise
+            bet_raise = min(self.players_stash[self.current_player], max(self.minimum_bet, self.current_bet * 2))
+            self.__stash_to_pot(self.current_player, bet_raise - self.active_player_bets[self.current_player])
             if bet_raise > self.current_bet:
                 self.current_bet = bet_raise
                 self.bet_leader = self.current_player
-        elif action == 3:
-            # All-in
-            if self.players_stash[self.current_player] > self.current_bet:
-                self.current_bet = self.players_stash[self.current_player]
+        elif action == 3:  # All-in
+            all_in_amount = self.players_stash[self.current_player]
+            self.__stash_to_pot(self.current_player, all_in_amount)
+            if all_in_amount > self.current_bet:
+                self.current_bet = all_in_amount
                 self.bet_leader = self.current_player
-            self.__stash_to_pot(
-                self.current_player, self.players_stash[self.current_player]
-            )
         else:
             raise ValueError("Invalid action")
 
-        # Move to the next player
-        self.current_player = self.active_players[
-            (self.active_players.index(self.current_player) + 1)
-            % len(self.active_players)
-        ]
-        while (
-            self.round < 4
-            and self.players_stash[self.current_player] == 0
-            and self.current_player != self.bet_leader
-        ):
-            self.current_player = self.active_players[
-                (self.active_players.index(self.current_player) + 1)
-                % len(self.active_players)
-            ]
+        # Update current player taking account of folded players
+        if self.active_players:
+            current_index = (current_index + 1) % len(self.active_players)
+            self.current_player = self.active_players[current_index]
 
-        if self.current_player == self.bet_leader:
-            if self.round == 4:
-                done = True
-                if not self.game_over:
-                    self.leader = (self.leader + 1) % self.num_players
-                    while self.players_stash[self.leader] == 0:
-                        self.leader = (self.leader + 1) % self.num_players
-            elif self.round == 3:
-                # End of game
-                winners = self.__best_player_hand(self.active_players)
-                self.__pot_to_stash(winners)
-                self.round += 1
-            else:
-                self.__reset_bets()
+            if self.current_player == self.bet_leader:
+                if self.round == 4:
+                    done = True
+                    if not self.game_over:
+                        self.__reset_round()
+                else:
+                    if self.round == 3:
+                        winners = self.__best_player_hand(self.active_players)
+                        self.__pot_to_stash(winners)
+                    # self.round += 1
+                    self.__reset_bets()
+        else:
+            done = True  # All players except one have folded, so end the game
 
         return self.__get_player_state(self.current_player), reward, done, {}
+
+    def __reset_round(self):
+        self.leader = (self.leader + 1) % self.num_players
+        while self.players_stash[self.leader] == 0 and any(self.players_stash):
+            self.leader = (self.leader + 1) % self.num_players
 
     @property
     def game_over(self):
@@ -329,6 +307,6 @@ if __name__ == "__main__":
     done = False
     # Need DQN agent
     while not done:
-        action = np.random.randint(1, 3)  # Random action for now
+        action = np.random.randint(0, 3)  # Random action for now
         state, reward, done, _ = env.step(action)
         env.render()
