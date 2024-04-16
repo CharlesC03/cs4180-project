@@ -10,7 +10,11 @@ python = "^3.10"
 numpy = "^1.26.4"
 gymnasium = "^0.29.1"
 numba = "^0.59.1"
-tensorflow = {extras = ["and-cuda"], version = "^2.16.1"}
+torch = "^2.2.2"
+torchvision = "^0.17.2"
+torchaudio = "^2.2.2"
+matplotlib = "^3.8.4"
+tqdm = "^4.66.2"
 
 
 [build-system]

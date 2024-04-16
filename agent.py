@@ -1,18 +1,86 @@
 from collections import namedtuple
 import copy
 import numpy as np
-import matplotlib.pyplot as plt
+import gymnasium as gym
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import tqdm
+
+from env import PokerEnvironment
+
+
+class ExponentialSchedule:
+    def __init__(self, value_from, value_to, num_steps):
+        """Exponential schedule from `value_from` to `value_to` in `num_steps` steps.
+
+        $value(t) = a \exp (b t)$
+
+        :param value_from: Initial value
+        :param value_to: Final value
+        :param num_steps: Number of steps for the exponential schedule
+        """
+        self.value_from = value_from
+        self.value_to = value_to
+        self.num_steps = num_steps
+
+        # YOUR CODE HERE: Determine the `a` and `b` parameters such that the schedule is correct
+        self.a = self.value_from
+        self.b = np.log(self.value_to / self.value_from) / (self.num_steps - 1)
+
+    def value(self, step) -> float:
+        """Return exponentially interpolated value between `value_from` and `value_to`interpolated value between.
+
+        Returns {
+            `value_from`, if step == 0 or less
+            `value_to`, if step == num_steps - 1 or more
+            the exponential interpolation between `value_from` and `value_to`, if 0 <= steps < num_steps
+        }
+
+        :param step: The step at which to compute the interpolation
+        :rtype: Float. The interpolated value
+        """
+
+        return self.a * np.exp(self.b * min(max(step, 0), self.num_steps - 1))
+
+
+# DO NOT EDIT: Test code
+
+
+def _test_schedule(schedule, step, value, ndigits=5):
+    """Tests that the schedule returns the correct value."""
+    v = schedule.value(step)
+    if not round(v, ndigits) == round(value, ndigits):
+        raise Exception(
+            f"For step {step}, the scheduler returned {v} instead of {value}"
+        )
+
+
+_schedule = ExponentialSchedule(0.1, 0.2, 3)
+_test_schedule(_schedule, -1, 0.1)
+_test_schedule(_schedule, 0, 0.1)
+_test_schedule(_schedule, 1, 0.141421356237309515)
+_test_schedule(_schedule, 2, 0.2)
+_test_schedule(_schedule, 3, 0.2)
+del _schedule
+
+_schedule = ExponentialSchedule(0.5, 0.1, 5)
+_test_schedule(_schedule, -1, 0.5)
+_test_schedule(_schedule, 0, 0.5)
+_test_schedule(_schedule, 1, 0.33437015248821106)
+_test_schedule(_schedule, 2, 0.22360679774997905)
+_test_schedule(_schedule, 3, 0.14953487812212207)
+_test_schedule(_schedule, 4, 0.1)
+_test_schedule(_schedule, 5, 0.1)
+del _schedule
 
 # Batch namedtuple, i.e. a class which contains the given attributes
 Batch = namedtuple("Batch", ("states", "actions", "rewards", "next_states", "dones"))
 
 
 class ReplayMemory:
-    def __init__(self, max_size, state_size):
+    def __init__(self, max_size: int, state_size: int, num_players: int):
         """Replay memory implemented as a circular buffer.
 
         Experiences will be removed in a FIFO manner after reaching maximum
@@ -24,20 +92,24 @@ class ReplayMemory:
         """
         self.max_size = max_size
         self.state_size = state_size
+        self.num_players = num_players
 
         # Preallocating all the required memory, for speed concerns
-        self.states = torch.empty((max_size, state_size))
-        self.actions = torch.empty((max_size, 1), dtype=torch.long)
-        self.rewards = torch.empty((max_size, 1))
-        self.next_states = torch.empty((max_size, state_size))
-        self.dones = torch.empty((max_size, 1), dtype=torch.bool)
+        # Buffer must be separate for each player
+        # self.states = [torch.empty((max_size, state_size)) for _ in range(num_players)]
+        self.states = torch.empty((num_players, max_size, state_size))
+        self.actions = torch.empty((num_players, max_size, 1), dtype=torch.long)
+        self.rewards = torch.empty((num_players, max_size, 1))
+        self.next_states = torch.empty((num_players, max_size, state_size))
+        self.dones = torch.empty((num_players, max_size, 1), dtype=torch.bool)
 
         # Pointer to the current location in the circular buffer
-        self.idx = 0
+        # self.idx = 0
+        self.idx = [0] * num_players
         # Indicates number of transitions currently stored in the buffer
-        self.size = 0
+        self.size = [0] * num_players
 
-    def add(self, state, action, reward, next_state, done):
+    def add(self, player: int, state, action, reward, next_state, done: bool):
         """Add a transition to the buffer.
 
         :param state: 1-D np.ndarray of state-features
@@ -50,19 +122,22 @@ class ReplayMemory:
         # YOUR CODE HERE: Store the input values into the appropriate
         # attributes, using the current buffer position `self.idx`
 
-        self.states[self.idx] = torch.from_numpy(state)
-        self.actions[self.idx] = action
-        self.rewards[self.idx] = reward
-        self.next_states[self.idx] = torch.from_numpy(next_state)
-        self.dones[self.idx] = done
+        self.states[player][self.idx] = torch.from_numpy(state)
+        self.actions[player][self.idx] = action
+        self.rewards[player][self.idx] = reward
+        self.next_states[player][self.idx] = torch.from_numpy(next_state)
+        self.dones[player][self.idx] = done
 
         # DO NOT EDIT
         # Circulate the pointer to the next position
-        self.idx = (self.idx + 1) % self.max_size
+        # self.idx = (self.idx + 1) % self.max_size
+        self.idx[player] = (self.idx[player] + 1) % self.max_size
         # Update the current buffer size
-        self.size = min(self.size + 1, self.max_size)
+        # self.size = min(self.size + 1, self.max_size)
+        self.size = min(self.size[player] + 1, self.max_size)
 
     def sample(self, batch_size) -> Batch:
+        # def sample(self, batch_size: int) -> Dict[str, torch.Tensor]:
         """Sample a batch of experiences.
 
         If the buffer contains less that `batch_size` transitions, sample all
@@ -77,27 +152,45 @@ class ReplayMemory:
         # `batch_size` transitions, return all of them. The return type must
         # be a `Batch`.
 
+        player = np.random.randint(self.num_players)
+
+        # for player in range(self.num_players):
+        #     if self.size < batch_size:
+        #         sample_indices = np.arange(self.size[player])
+        #     else:
+        #         sample_indices = np.random.choice(
+        #             self.size[player], batch_size, replace=False
+        #         )
+
+        #     batches[f"States (player {player})"] = self.states[player, sample_indices]
+        #     batches[f"Actions (player {player})"] = self.actions[player, sample_indices]
+        #     batches[f"Rewards (player {player})"] = self.rewards[player, sample_indices]
+        #     batches[f"Next States (player {player})"] = self.next_states[
+        #         player, sample_indices
+        #     ]
+        #     batches[f"Dones (player {player})"] = self.dones[player, sample_indices]
+
         if self.size < batch_size:
             return Batch(
-                states=self.states[: self.size],
-                actions=self.actions[: self.size],
-                rewards=self.rewards[: self.size],
-                next_states=self.next_states[: self.size],
-                dones=self.dones[: self.size],
+                states=self.states[player][: self.size],
+                actions=self.actions[player][: self.size],
+                rewards=self.rewards[player][: self.size],
+                next_states=self.next_states[player][: self.size],
+                dones=self.dones[player][: self.size],
             )
 
         sample_indices = np.random.choice(self.size, batch_size, replace=False)
         batch = Batch(
-            states=self.states[sample_indices],
-            actions=self.actions[sample_indices],
-            rewards=self.rewards[sample_indices],
-            next_states=self.next_states[sample_indices],
-            dones=self.dones[sample_indices],
+            states=self.states[player][sample_indices],
+            actions=self.actions[player][sample_indices],
+            rewards=self.rewards[player][sample_indices],
+            next_states=self.next_states[player][sample_indices],
+            dones=self.dones[player][sample_indices],
         )
 
         return batch
 
-    def populate(self, env, num_steps):
+    def populate(self, env: PokerEnvironment, num_steps: int):
         """Populate this replay memory with `num_steps` from the random policy.
 
         :param env: Gymnasium environment
@@ -108,15 +201,41 @@ class ReplayMemory:
         # populate the replay memory with the resulting transitions.
         # Hint: Use the self.add() method.
 
-        state, _ = env.reset()
         for _ in range(num_steps):
-            action = env.action_space.sample()
-            next_state, reward, done, _, _ = env.step(action)
-            self.add(state, action, reward, next_state, done)
-            if done:
-                state, _ = env.reset()
-            else:
-                state = next_state
+            prev_states = [None] * self.num_players
+            player, states = env.reset()
+            prev_states[player] = states
+            for player in range(self.num_players):
+                action = env.random_action()
+                player, player_state, rewards, dones = env.step(action)
+                prev_states[player] = player_state
+            done = False
+            while done:
+                actions = env.random_action()
+                player, player_state, rewards, done = env.step(
+                    actions
+                )  # MARK: Update this to work with multiple players
+                self.add(
+                    player,
+                    prev_states[player],
+                    actions[player],
+                    rewards[player],
+                    player_state,
+                    env.round == 4, # MARK: This may cause problems
+                )
+                prev_states[player] = player_state
+
+                states = player_state
+        # state = {}
+        # player, state, _ = env.reset()
+        # for _ in range(num_steps):
+        #     action = env.random_action()
+        #     player, next_state, reward, done = env.step(action)
+        #     self.add(state, action, reward, next_state, done)
+        #     if done:
+        #         state, _ = env.reset()
+        #     else:
+        #         state = next_state
 
 
 class DQN(nn.Module):
@@ -163,6 +282,28 @@ class DQN(nn.Module):
         # the action-values tensor associated with the input states.
         # Hint: Do not worry about the * arguments above (previous dims in tensor).
         # PyTorch functions typically handle those properly.
+
+        # batch_size = states.size(0)
+        # states = states.view(batch_size * self.num_players, self.state_dim)
+
+        # Process the state-action mapping individually for each player
+        # outputs = []
+        # for player in range(self.num_players):
+        #     x = states[player :: self.num_players]
+        #     x = self.in_layers[player](x)
+        #     x = F.relu(x)
+        #     for layer in self.hidden_layers[
+        #         player * (self.num_layers - 1) : (player + 1) * (self.num_layers - 1)
+        #     ]:
+        #         x = layer[0](x)
+        #         x = layer[1](x)
+        #     x = self.final_hidden_layer[player](x)
+        #     outputs.append(x)
+
+        # # stacks and reshapes the tensor to fit the desired shape
+        # return torch.stack(outputs, dim=1).view(
+        #     batch_size, self.num_players, self.action_dim
+        # )
 
         x = self.in_layer(states)
         x = F.relu(x)
@@ -212,7 +353,7 @@ def _test_dqn_forward(dqn_model, input_shape, output_shape):
 
     if not outputs.requires_grad:
         raise Exception(
-            f"DQN.forward returned tensor which does not require a gradient (but it should)"
+            "DQN.forward returned tensor which does not require a gradient (but it should)"
         )
 
 
@@ -251,6 +392,7 @@ def train_dqn_batch(optimizer, batch, dqn_model, dqn_target, gamma) -> float:
     # ('states', 'actions', 'rewards', 'next_states', 'dones')
     # Hint: Remember that we should not pass gradients through the target network
     # dqn_model.train()
+    # MARK: TODO: Upate this part to work with multiple players
     values = dqn_model(batch.states).gather(1, batch.actions)
     target_values = batch.rewards + gamma * torch.max(
         dqn_target(batch.next_states).detach(), dim=1
@@ -281,7 +423,7 @@ def train_dqn_batch(optimizer, batch, dqn_model, dqn_target, gamma) -> float:
 
 
 def train_dqn(
-    env,
+    env: PokerEnvironment,
     num_steps,
     model,
     *,
@@ -318,23 +460,23 @@ def train_dqn(
         - losses: Numpy array containing the loss of each training batch
     """
     # Check that environment states are compatible with our DQN representation
-    assert (
-        isinstance(env.observation_space, gym.spaces.Box)
-        and len(env.observation_space.shape) == 1
-    )
+    # assert (
+    #     isinstance(env.observation_space, gym.spaces.Box)
+    #     and len(env.observation_space.shape) == 1
+    # )
 
     # Get the state_size from the environment
-    state_size = env.observation_space.shape[0]
+    state_size = 18
 
     # Initialize the DQN and DQN-target models
-    dqn_model = model(state_size, env.action_space.n)
+    dqn_model = model(state_size, 3)
     dqn_target = model.custom_load(dqn_model.custom_dump())
 
     # Initialize the optimizer
     optimizer = torch.optim.Adam(dqn_model.parameters())
 
     # Initialize the replay memory and prepopulate it
-    memory = ReplayMemory(replay_size, state_size)
+    memory = ReplayMemory(replay_size, state_size, 2)
     memory.populate(env, replay_prepopulate_steps)
 
     # Initialize lists to store returns, lengths, and losses
@@ -355,6 +497,7 @@ def train_dqn(
 
     # Iterate for a total of `num_steps` steps
     pbar = tqdm.trange(num_steps)
+    prev_states = np.empty((env.num_players, state_size))
     for t_total in pbar:
         # Use t_total to indicate the time-step from the beginning of training
 
@@ -369,17 +512,22 @@ def train_dqn(
         #  * store the transition into the replay memory
 
         action = (
-            env.action_space.sample()
+            env.random_action()
             if np.random.rand() < exploration.value(t_total)
             else torch.argmax(
                 dqn_model(torch.tensor(state).float().unsqueeze(0))
             ).item()
         )
+        print(action)
 
-        next_state, reward, done, _, _ = env.step(action)
+        player, next_state, reward, done = env.step(action)
 
-        memory.add(state, action, reward, next_state, done)
-        G = reward + gamma * G
+        prev_states[player] = next_state
+
+        memory.add(player, state, action, reward, next_state, done)
+        G = (
+            reward + gamma * G
+        )  # MARK: Add support to update individually for each of the players
         rewards.append(reward)
         # YOUR CODE HERE: Once every 4 steps,
         #  * sample a batch from the replay memory

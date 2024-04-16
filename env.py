@@ -12,8 +12,13 @@ def cards_to_int(cards: list[Card]):
     return [1 + (card.rank - 2) * 4 + "HDCS".index(card.suit) for card in cards]
 
 
-def cards_to_ints(cards: list[Card]):
-    return [(card.rank, "HDCS".index(card.suit) + 1) for card in cards]
+def cards_to_ints(cards: list[Card], length):
+    res = [0] * (length * 2)
+
+    for i, card in enumerate(cards):
+        res[i * 2] = card.rank - 1
+        res[i * 2 + 1] = "HDCS".index(card.suit) + 1
+    return res
 
 
 class PokerEnvironment:
@@ -78,8 +83,8 @@ class PokerEnvironment:
         """
         return (
             (self.bet_leader - player + self.num_players) % self.num_players,
-            self.__get_community_cards(),
-            self.hands[player],
+            *cards_to_ints(self.__get_community_cards(), 5),
+            *cards_to_ints(self.hands[player], 2),
             self.players_stash[player],
             self.current_bet - self.active_player_bets[player],
         )
@@ -469,8 +474,7 @@ class PokerEnvironment:
             action (int): The action to take in the game.
 
         Returns:
-            tuple: A tuple containing the next player state, the reward obtained from the action,
-                   a boolean indicating if the game is done, and additional information.
+            tuple: A tuple containing the current player, the player state, the player reward, and a boolean indicating if the game is done.
 
         Raises:
             ValueError: If the current player is not active or if an invalid action is provided.
@@ -528,7 +532,7 @@ class PokerEnvironment:
                 self.current_player, self.players_stash[self.current_player]
             )
         else:
-            raise ValueError("Invalid action")
+            raise ValueError(f"Invalid action: {action}")
 
         # Perform other actions based on the chosen action (Call, Raise, All-in)
         # Move to the next active player
@@ -544,7 +548,7 @@ class PokerEnvironment:
                 self.__pot_to_stash(winners)
                 self.current_player = self.leader
                 self.current_player = self.next_player
-                self.round += 1
+                self.round = 4
                 return (
                     self.current_player,
                     self.__get_player_state(self.current_player),
@@ -621,7 +625,7 @@ class PokerEnvironment:
             )
 
     def random_action(self):
-        return np.random.randint(0, 4)
+        return np.random.randint(0, 3)
 
     def close(self):
         pass
