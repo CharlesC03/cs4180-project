@@ -13,8 +13,8 @@ def cards_to_int(cards: list[Card]):
 
 
 class PokerEnvironment:
-    """The PokerEnvironment class implements a simplified version of the Texas Hold'em poker game.
-    """
+    """The PokerEnvironment class implements a simplified version of the Texas Hold'em poker game."""
+
     def __init__(
         self, num_players=2, minimum_bet=0.5, stash_size=10, little_blind=False
     ):
@@ -74,9 +74,11 @@ class PokerEnvironment:
         """
         return (
             player,
+            (self.bet_leader - player + self.num_players) % self.num_players,
             self.__get_community_cards(),
             self.hands[player],
             self.players_stash[player],
+            self.current_bet - self.active_player_bets[player],
         )
 
     def reset(self):
@@ -476,7 +478,7 @@ class PokerEnvironment:
         if len(self.active_players) == 1:
             # No active players remaining (all have folded or game is over)
             self.__pot_to_stash(self.active_players)
-            return None, self.__get_players_rewards(), True, {}
+            return None, self.__get_players_rewards(), True
 
         # Ensure that self.current_player is still in active_players
         if self.current_player not in self.active_players:
@@ -517,10 +519,10 @@ class PokerEnvironment:
                 self.__pot_to_stash(winners)
                 if not self.game_over:
                     self.__set_next_leader()
-                return None, self.__get_players_rewards(), True, {}
+                return None, self.__get_players_rewards(), True
             self.__reset_bets()
 
-        return self.__get_player_state(self.current_player), 0, False, {}
+        return self.__get_player_state(self.current_player), 0, False
 
     def __set_next_leader(self):
         self.leader = (self.leader + 1) % self.num_players
@@ -581,6 +583,9 @@ class PokerEnvironment:
             print(
                 f"Round: {self.round}, Current Player: {self.current_player}, Stash: {self.players_stash[self.current_player]}, Hands: {[', '.join([f'{card.suit}{card.rank}' for card in hand]) for hand in self.hands]}, Community Cards: {[f'{card.suit}{card.rank}' for card in self.__get_community_cards()]}"
             )
+
+    def random_action(self):
+        return np.random.randint(0, 4)
 
     def close(self):
         pass
