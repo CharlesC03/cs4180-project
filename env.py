@@ -12,6 +12,10 @@ def cards_to_int(cards: list[Card]):
     return [1 + (card.rank - 2) * 4 + "HDCS".index(card.suit) for card in cards]
 
 
+def cards_to_ints(cards: list[Card]):
+    return [(card.rank, "HDCS".index(card.suit) + 1) for card in cards]
+
+
 class PokerEnvironment:
     """The PokerEnvironment class implements a simplified version of the Texas Hold'em poker game."""
 
@@ -73,7 +77,6 @@ class PokerEnvironment:
             tuple: A tuple containing the player's name, the community cards, the player's stash, and the player's hand.
         """
         return (
-            player,
             (self.bet_leader - player + self.num_players) % self.num_players,
             self.__get_community_cards(),
             self.hands[player],
@@ -106,7 +109,7 @@ class PokerEnvironment:
         self.current_bet = 0
         self.active_player_bets = np.zeros(self.num_players)
         self.round = 0  # Round 0 is before flop
-        return self.__get_player_state(self.current_player)
+        return self.current_player, self.__get_player_state(self.current_player)
 
     def reset_deck(self):
         """
@@ -472,13 +475,32 @@ class PokerEnvironment:
         Raises:
             ValueError: If the current player is not active or if an invalid action is provided.
         """
-        # reward = 0
-        self.action = action
+        if self.round == 4:
+            self.current_player = self.next_player
+            done = False
+            if self.current_player == self.leader:
+                if not self.game_over:
+                    self.__set_next_leader()
+                done = True
+            return (
+                self.current_player,
+                self.__get_player_state(self.current_player),
+                self.__get_player_reward(self.current_player),
+                done,
+            )
 
         if len(self.active_players) == 1:
             # No active players remaining (all have folded or game is over)
             self.__pot_to_stash(self.active_players)
-            return None, self.__get_players_rewards(), True
+            self.current_player = self.leader
+            self.current_player = self.next_player
+            self.round = 4
+            return (
+                self.current_player,
+                self.__get_player_state(self.current_player),
+                self.__get_player_reward(self.current_player),
+                False,
+            )
 
         # Ensure that self.current_player is still in active_players
         if self.current_player not in self.active_players:
@@ -514,15 +536,29 @@ class PokerEnvironment:
 
         # Check if the betting round or game is over
         if self.current_player == self.bet_leader:
-            if self.round == 3:
-                winners = self.__best_player_hand(self.active_players)
-                self.__pot_to_stash(winners)
+            if self.round == 4:
                 if not self.game_over:
                     self.__set_next_leader()
-                return None, self.__get_players_rewards(), True
+            elif self.round == 3:
+                winners = self.__best_player_hand(self.active_players)
+                self.__pot_to_stash(winners)
+                self.current_player = self.leader
+                self.current_player = self.next_player
+                self.round += 1
+                return (
+                    self.current_player,
+                    self.__get_player_state(self.current_player),
+                    self.__get_player_reward(self.current_player),
+                    False,
+                )
             self.__reset_bets()
 
-        return self.__get_player_state(self.current_player), 0, False
+        return (
+            self.current_player,
+            self.__get_player_state(self.current_player),
+            0,
+            False,
+        )
 
     def __set_next_leader(self):
         self.leader = (self.leader + 1) % self.num_players
@@ -593,13 +629,16 @@ class PokerEnvironment:
 
 # # To run
 # if __name__ == "__main__":
-#     for _ in range(int(1e6)):
-#         env = PokerEnvironment()
-#         while not env.game_over:
-#             state = env.reset()
-#             done = False
-#             # Need DQN agent
-#             while not done:
-#                 action = np.random.randint(0, 3)  # Random action for now
-#                 # print(f"Action: {action}")
-#                 state, reward, done, _ = env.step(action)
+#     # for _ in range(int(1e6)):
+#     env = PokerEnvironment()
+#     while not env.game_over:
+#         state = env.reset()
+#         done = False
+#         # Need DQN agent
+#         while not done:
+#             action = np.random.randint(0, 3)  # Random action for now
+#             # print(f"Action: {action}")
+#             player, state, reward, done = env.step(action)
+#             print(
+#                 f"Round: {env.round}, Action: {action}, Player: {player}, State: {state}, Reward: {reward}, Done: {done}"
+#             )
