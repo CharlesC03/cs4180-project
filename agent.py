@@ -1,7 +1,6 @@
 from collections import namedtuple
 import copy
 import numpy as np
-import gymnasium as gym
 
 import torch
 import torch.nn as nn
