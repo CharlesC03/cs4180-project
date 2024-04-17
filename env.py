@@ -85,7 +85,7 @@ class PokerEnvironment:
             (self.bet_leader - player + self.num_players) % self.num_players,
             *cards_to_ints(self.__get_community_cards(), 5),
             *cards_to_ints(self.hands[player], 2),
-            self.players_stash[player],
+            *self.players_stash,
             self.current_bet - self.active_player_bets[player],
         )
 
@@ -609,20 +609,20 @@ class PokerEnvironment:
         self.current_player = self.bet_leader
         self.round += 1
 
-    def render(self):
+    def render(self, action="N/A"):
         """
         Prints the current state of the game.
 
         If the round is 3 or there is only one active player remaining, it prints the winners, pot, rewards, and new leader.
         Otherwise, it prints the round number, current player, stash, hands, and community cards.
         """
-        if self.round == 3 or len(self.active_players) == 1:
+        if self.round == 4 or len(self.active_players) == 1:
             print(
                 f"Winners: {self.__best_player_hand(self.active_players)}, Pot: {self.pot}, Rewards: {self.__get_players_rewards()}, New Leader: {self.leader}"
             )
         else:
             print(
-                f"Round: {self.round}, Current Player: {self.current_player}, Stash: {self.players_stash[self.current_player]}, Hands: {[', '.join([f'{card.suit}{card.rank}' for card in hand]) for hand in self.hands]}, Community Cards: {[f'{card.suit}{card.rank}' for card in self.__get_community_cards()]}"
+                f"Round: {self.round}, Current Player: {self.current_player}, Stash: {self.players_stash[self.current_player]}, Hands: {[', '.join([f'{card.suit}{card.rank}' for card in hand]) for hand in self.hands]}, Community Cards: {[f'{card.suit}{card.rank}' for card in self.__get_community_cards()]}, Action: {action}"
             )
 
     def random_action(self):

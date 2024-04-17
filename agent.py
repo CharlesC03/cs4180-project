@@ -467,11 +467,11 @@ def train_dqn(
     # )
 
     # Get the state_size from the environment
-    state_size = 17
+    state_size = 18
 
     # Initialize the DQN and DQN-target models
     dqn_model = model(
-        state_size, 3, num_layers=model_num_layers, hidden_dim=model_hidden_dim
+        state_size, 4, num_layers=model_num_layers, hidden_dim=model_hidden_dim
     )
     dqn_target = model.custom_load(dqn_model.custom_dump())
 
