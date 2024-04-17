@@ -427,6 +427,8 @@ def train_dqn(
     num_steps,
     model,
     *,
+    model_num_layers=20,
+    model_hidden_dim=256,
     num_saves=5,
     replay_size,
     replay_prepopulate_steps=0,
@@ -469,7 +471,9 @@ def train_dqn(
     state_size = 17
 
     # Initialize the DQN and DQN-target models
-    dqn_model = model(state_size, 3)
+    dqn_model = model(
+        state_size, 3, num_layers=model_num_layers, hidden_dim=model_hidden_dim
+    )
     dqn_target = model.custom_load(dqn_model.custom_dump())
 
     # Initialize the optimizer
@@ -480,8 +484,8 @@ def train_dqn(
     memory.populate(env, replay_prepopulate_steps)
 
     # Initialize lists to store returns, lengths, and losses
-    rewards = [[] * env.num_players]
-    returns = []
+    # rewards = [[] for _ in range(env.num_players)]
+    returns = [[] for _ in range(env.num_players)]
     lengths = []
     losses = []
 
@@ -523,10 +527,12 @@ def train_dqn(
 
         player, next_state, reward, done = env.step(action)
 
-        memory.add(player, prev_states[player], action, reward, next_state, done)
+        memory.add(
+            player, prev_states[player], action, reward, next_state, env.round == 4
+        )
         G[player] = reward + gamma * G[player]
         # MARK: Add support to update individually for each of the players
-        rewards.append(reward)
+        # rewards[player].append(reward)
         # YOUR CODE HERE: Once every 4 steps,
         #  * sample a batch from the replay memory
         #  * perform a batch update (use the train_dqn_batch() method)
@@ -548,22 +554,23 @@ def train_dqn(
             # e.g., compute return G, store returns/lengths,
             # reset variables, indices, lists, etc.
             # G = sum([gamma**i * rewards[i] for i in range(len(rewards))])
-            returns.append(G)
+            for i in range(env.num_players):
+                returns[i].append(G[i])
             eps = exploration.value(t_total)
             lengths.append(t_episode)
 
             pbar.set_description(
-                f"Episode: {i_episode} | Steps: {t_episode + 1} | Return: {G.mean():5.2f} | Epsilon: {eps:4.2f}"
+                f"Episode: {i_episode} | Steps: {t_episode + 1} | Return: {G.mean():5.2f}({G.min():5.2f} {G.max():5.2f}) | Epsilon: {eps:4.2f}"
             )
 
             if env.game_over:
-                env = PokerEnvironment()
+                env.full_reset()
 
             player, state = env.reset()
             prev_states[player] = state
             i_episode += 1
             t_episode = 0
-            rewards = []
+            # rewards = [[] for _ in range(env.num_players)]
             G = np.zeros(env.num_players, dtype=float)
         else:
             prev_states[player] = next_state

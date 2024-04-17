@@ -635,7 +635,6 @@ class PokerEnvironment:
         self.__init__(
             self.num_players, self.minimum_bet, self.init_stash_size, self.little_blind
         )
-        return self.reset()
 
 
 # # To run
