@@ -14,12 +14,30 @@ def cards_to_int(cards: list[Card]):
 
 def cards_to_ints(cards: list[Card], length):
     res = [0] * (length * 2)
-
     for i, card in enumerate(cards):
         res[i * 2] = card.rank - 1
         res[i * 2 + 1] = "HDCS".index(card.suit) + 1
     return res
 
+
+card_rank_str_mapping = {
+    14: "A",
+    2: "2",
+    3: "3",
+    4: "4",
+    5: "5",
+    6: "6",
+    7: "7",
+    8: "8",
+    9: "9",
+    10: "T",
+    11: "J",
+    12: "Q",
+    13: "K",
+}
+
+def card_to_str(card: Card):
+    return f"{card.suit}{card_rank_str_mapping[card.rank]}"
 
 class PokerEnvironment:
     """The PokerEnvironment class implements a simplified version of the Texas Hold'em poker game."""
@@ -39,7 +57,7 @@ class PokerEnvironment:
         self.num_players = num_players
         self.init_stash_size = stash_size
         self.players_stash = np.array(
-            [self.init_stash_size for _ in range(num_players)]
+            [self.init_stash_size for _ in range(num_players)], dtype=np.float64
         )  # Initial stash for each player
         self.initial_player_stashes = self.players_stash.copy()
         self.active_players = []
@@ -85,7 +103,7 @@ class PokerEnvironment:
             (self.bet_leader - player + self.num_players) % self.num_players,
             *cards_to_ints(self.__get_community_cards(), 5),
             *cards_to_ints(self.hands[player], 2),
-            *self.players_stash,
+            self.players_stash[player],
             self.current_bet - self.active_player_bets[player],
         )
 
@@ -518,10 +536,11 @@ class PokerEnvironment:
         ):
             little_blind = self.minimum_bet / 2
             self.__stash_to_pot(self.current_player, little_blind)
-        if self.round == 0 and self.bet_leader == self.current_player:
+        elif self.round == 0 and self.bet_leader == self.current_player:
             self.current_bet = self.minimum_bet
-            self.__call_player(self.current_player)
-        elif action == 0:  # Fold
+            self.__stash_to_pot(self.current_player, self.current_bet)
+        
+        if action == 0:  # Fold
             # Player folds and is removed from active players
             self.__fold_player(self.current_player)
         elif action == 1:  # Call
@@ -616,13 +635,12 @@ class PokerEnvironment:
         If the round is 3 or there is only one active player remaining, it prints the winners, pot, rewards, and new leader.
         Otherwise, it prints the round number, current player, stash, hands, and community cards.
         """
+        print(
+            f"Round: {self.round}, Current Player: {self.current_player}, Pot:{self.pot}, Stashes: {[f'{player}: {self.players_stash[player]}' for player in range(self.num_players)]}, Hand: {', '.join([card_to_str(card) for card in self.hands[self.current_player]])}, Community Cards: {[f'{card.suit}{card.rank}' for card in self.__get_community_cards()]}"
+        )
         if self.round == 4 or len(self.active_players) == 1:
             print(
                 f"Winners: {self.__best_player_hand(self.active_players)}, Pot: {self.pot}, Rewards: {self.__get_players_rewards()}, New Leader: {self.leader}"
-            )
-        else:
-            print(
-                f"Round: {self.round}, Current Player: {self.current_player}, Stash: {self.players_stash[self.current_player]}, Hands: {[', '.join([f'{card.suit}{card.rank}' for card in hand]) for hand in self.hands]}, Community Cards: {[f'{card.suit}{card.rank}' for card in self.__get_community_cards()]}, Action: {action}"
             )
 
     def random_action(self):
