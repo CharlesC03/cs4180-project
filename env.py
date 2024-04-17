@@ -98,6 +98,7 @@ class PokerEnvironment:
         It returns the player state of the current player.
 
         Returns:
+            int: The name of the current player.
             dict: The player state of the current player.
         """
         self.reset_deck()
@@ -629,6 +630,12 @@ class PokerEnvironment:
 
     def close(self):
         pass
+
+    def full_reset(self):
+        self.__init__(
+            self.num_players, self.minimum_bet, self.init_stash_size, self.little_blind
+        )
+        return self.reset()
 
 
 # # To run

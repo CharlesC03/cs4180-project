@@ -45,6 +45,4 @@ if __name__ == "__main__":
 
     # Saving computed models to disk, so that we can load and visualize them later
     checkpoint = {key: dqn.custom_dump() for key, dqn in dqn_models.items()}
-    torch.save(
-        checkpoint, f"checkpoint_{model_class.final_activation_func}{env.spec.id}.pt"
-    )
+    torch.save(checkpoint, f"checkpoint_{env.spec.id}.pt")

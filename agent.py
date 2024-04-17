@@ -105,9 +105,9 @@ class ReplayMemory:
 
         # Pointer to the current location in the circular buffer
         # self.idx = 0
-        self.idx = [0] * num_players
+        self.idx = np.zeros(num_players, dtype=int)
         # Indicates number of transitions currently stored in the buffer
-        self.size = [0] * num_players
+        self.size = np.zeros(num_players, dtype=int)
 
     def add(self, player: int, state, action, reward, next_state, done: bool):
         """Add a transition to the buffer.
@@ -122,10 +122,10 @@ class ReplayMemory:
         # YOUR CODE HERE: Store the input values into the appropriate
         # attributes, using the current buffer position `self.idx`
 
-        self.states[player][self.idx] = torch.from_numpy(state)
+        self.states[player][self.idx] = torch.tensor(state).float()
         self.actions[player][self.idx] = action
         self.rewards[player][self.idx] = reward
-        self.next_states[player][self.idx] = torch.from_numpy(next_state)
+        self.next_states[player][self.idx] = torch.tensor(next_state).float()
         self.dones[player][self.idx] = done
 
         # DO NOT EDIT
@@ -134,7 +134,7 @@ class ReplayMemory:
         self.idx[player] = (self.idx[player] + 1) % self.max_size
         # Update the current buffer size
         # self.size = min(self.size + 1, self.max_size)
-        self.size = min(self.size[player] + 1, self.max_size)
+        self.size[player] = min(self.size[player] + 1, self.max_size)
 
     def sample(self, batch_size) -> Batch:
         # def sample(self, batch_size: int) -> Dict[str, torch.Tensor]:
@@ -170,16 +170,16 @@ class ReplayMemory:
         #     ]
         #     batches[f"Dones (player {player})"] = self.dones[player, sample_indices]
 
-        if self.size < batch_size:
+        if self.size[player] < batch_size:
             return Batch(
-                states=self.states[player][: self.size],
-                actions=self.actions[player][: self.size],
-                rewards=self.rewards[player][: self.size],
-                next_states=self.next_states[player][: self.size],
-                dones=self.dones[player][: self.size],
+                states=self.states[player][: self.size[player]],
+                actions=self.actions[player][: self.size[player]],
+                rewards=self.rewards[player][: self.size[player]],
+                next_states=self.next_states[player][: self.size[player]],
+                dones=self.dones[player][: self.size[player]],
             )
 
-        sample_indices = np.random.choice(self.size, batch_size, replace=False)
+        sample_indices = np.random.choice(self.size[player], batch_size, replace=False)
         batch = Batch(
             states=self.states[player][sample_indices],
             actions=self.actions[player][sample_indices],
@@ -221,7 +221,7 @@ class ReplayMemory:
                     actions[player],
                     rewards[player],
                     player_state,
-                    env.round == 4, # MARK: This may cause problems
+                    env.round == 4,  # MARK: This may cause problems
                 )
                 prev_states[player] = player_state
 
@@ -466,7 +466,7 @@ def train_dqn(
     # )
 
     # Get the state_size from the environment
-    state_size = 18
+    state_size = 17
 
     # Initialize the DQN and DQN-target models
     dqn_model = model(state_size, 3)
@@ -480,7 +480,7 @@ def train_dqn(
     memory.populate(env, replay_prepopulate_steps)
 
     # Initialize lists to store returns, lengths, and losses
-    rewards = []
+    rewards = [[] * env.num_players]
     returns = []
     lengths = []
     losses = []
@@ -492,12 +492,15 @@ def train_dqn(
     i_episode = 0  # Use this to indicate the index of the current episode
     t_episode = 0  # Use this to indicate the time-step inside current episode
 
-    state, _ = env.reset()  # Initialize state of first episode
-    G = 0
+    prev_states = np.zeros((env.num_players, state_size))
+
+    player, state = env.reset()  # Initialize state of first episode
+
+    prev_states[player] = state
+    G = np.zeros(env.num_players, dtype=float)
 
     # Iterate for a total of `num_steps` steps
     pbar = tqdm.trange(num_steps)
-    prev_states = np.empty((env.num_players, state_size))
     for t_total in pbar:
         # Use t_total to indicate the time-step from the beginning of training
 
@@ -510,7 +513,6 @@ def train_dqn(
         #  * sample an action from the DQN using epsilon-greedy
         #  * use the action to advance the environment by one step
         #  * store the transition into the replay memory
-
         action = (
             env.random_action()
             if np.random.rand() < exploration.value(t_total)
@@ -518,16 +520,12 @@ def train_dqn(
                 dqn_model(torch.tensor(state).float().unsqueeze(0))
             ).item()
         )
-        print(action)
 
         player, next_state, reward, done = env.step(action)
 
-        prev_states[player] = next_state
-
-        memory.add(player, state, action, reward, next_state, done)
-        G = (
-            reward + gamma * G
-        )  # MARK: Add support to update individually for each of the players
+        memory.add(player, prev_states[player], action, reward, next_state, done)
+        G[player] = reward + gamma * G[player]
+        # MARK: Add support to update individually for each of the players
         rewards.append(reward)
         # YOUR CODE HERE: Once every 4 steps,
         #  * sample a batch from the replay memory
@@ -555,17 +553,20 @@ def train_dqn(
             lengths.append(t_episode)
 
             pbar.set_description(
-                f"Episode: {i_episode} | Steps: {t_episode + 1} | Return: {G:5.2f} | Epsilon: {eps:4.2f}"
+                f"Episode: {i_episode} | Steps: {t_episode + 1} | Return: {G.mean():5.2f} | Epsilon: {eps:4.2f}"
             )
 
-            state, _ = env.reset()
+            if env.game_over:
+                env = PokerEnvironment()
+
+            player, state = env.reset()
+            prev_states[player] = state
             i_episode += 1
             t_episode = 0
             rewards = []
-            G = 0
+            G = np.zeros(env.num_players, dtype=float)
         else:
-            # YOUR CODE HERE: Anything you need to do within an episode
-            state = next_state
+            prev_states[player] = next_state
             t_episode += 1
 
     saved_models["100_0"] = copy.deepcopy(dqn_model)
