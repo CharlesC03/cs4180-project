@@ -94,9 +94,9 @@ class PokerEnvironment:
         return self.community_cards[: {0: 0, 1: 3, 2: 4, 3: 5, 4: 5}[self.round]]
 
     @property
-    def state_shape(self):
-        # return 16 + self.num_players
-        return len(self.__get_player_state(0))
+    def state_size(self):
+        return 16 + self.num_players
+        # return len(self.__get_player_state(0))
 
     def __get_player_state(self, player):
         """
@@ -343,8 +343,6 @@ class PokerEnvironment:
         self.pot += amount
         self.active_player_bets[player] += amount
         self.players_stash[player] -= amount
-        if self.players_stash[player] == 0:
-            self.__fold_player(player)
 
     def __pot_to_stash(self, players):
         """
@@ -452,7 +450,10 @@ class PokerEnvironment:
         Returns:
         None
         """
-        self.__stash_to_pot(player, self.current_bet - self.active_player_bets[player])
+        self.__stash_to_pot(player, self.__player_diff_pot(player))
+
+    def __player_diff_pot(self, player):
+        return self.current_bet - self.active_player_bets[player]
 
     def __raise_player(self, player, amount=None):
         """
@@ -519,12 +520,17 @@ class PokerEnvironment:
                 done,
             )
 
-        if (
-            len(self.active_players) == 1
-            or sum([self.players_stash[p] != 0 for p in self.active_players]) == 1
+        if len(self.active_players) == 1 or (
+            self.current_player == self.bet_leader
+            and all([self.__player_diff_pot(p) == 0 for p in self.active_players])
         ):
             # No active players remaining (all have folded or game is over)
-            self.__pot_to_stash(self.active_players)
+            winners = (
+                self.__best_player_hand(self.active_players)
+                if len(self.active_players) > 1
+                else self.active_players
+            )
+            self.__pot_to_stash(winners)
             self.current_player = self.leader
             self.current_player = self.__get_next_player()
             self.round = 4
@@ -571,6 +577,12 @@ class PokerEnvironment:
             if self.next_player != -1
             else self.__get_next_active_player()
         )
+
+        while (
+            self.current_player != self.bet_leader
+            and self.__player_diff_pot(self.current_player) == 0
+        ):
+            self.current_player = self.__get_next_active_player()
 
         # Check if the betting round or game is over
         if self.current_player == self.bet_leader:
@@ -670,17 +682,17 @@ class PokerEnvironment:
 
 
 # # To run
-if __name__ == "__main__":
-    # for _ in range(int(1e6)):
-    env = PokerEnvironment(2)
-    while not env.game_over:
-        state = env.reset()
-        done = False
-        # Need DQN agent
-        while not done:
-            action = env.random_action()  # Random action for now
-            print(f"Action: {action}")
-            player, state, reward, done = env.step(action)
-            print(
-                f"Round: {env.round}, Action: {action}, Player: {player}, State: {state}, Reward: {reward}, Done: {done}"
-            )
+# if __name__ == "__main__":
+#     # for _ in range(int(1e6)):
+#     env = PokerEnvironment(2)
+#     while not env.game_over:
+#         state = env.reset()
+#         done = False
+#         # Need DQN agent
+#         while not done:
+#             action = env.random_action()  # Random action for now
+#             print(f"Action: {action}")
+#             player, state, reward, done = env.step(action)
+#             print(
+#                 f"Round: {env.round}, Action: {action}, Player: {player}, State: {state}, Reward: {reward}, Done: {done}"
+#             )
