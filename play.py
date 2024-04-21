@@ -3,7 +3,8 @@ import torch
 from agent import DQN
 from env import PokerEnvironment
 
-action_str_mapping = {0: 'Fold', 1:'Call', 2:'Raise', 3:'All in'}
+action_str_mapping = {0: "Fold", 1: "Call", 2: "Raise", 3: "All in"}
+
 
 def render(env: PokerEnvironment, policy=None, pvp=False, mutiple_rounds=False):
     """Graphically render an episode using the given policy
@@ -27,7 +28,7 @@ def render(env: PokerEnvironment, policy=None, pvp=False, mutiple_rounds=False):
             action = int(input("Enter action(Fold: 0, Call: 1, Raise: 2, All in: 3): "))
         else:
             action = policy(state)
-            print(F"AI action: {action_str_mapping[action]}")
+            print(f"AI action: {action_str_mapping[action]}")
         player, next_state, reward, terminated = env.step(action)
         # if not pvp or env.round == 4 or player == 0:
         env.render()
@@ -42,11 +43,11 @@ def render(env: PokerEnvironment, policy=None, pvp=False, mutiple_rounds=False):
 
 
 buttons_all = []
-model_class = DQN(17, 3)
+model_class = DQN(18, 4)
 env = PokerEnvironment()
 # PVP = False
-MODEL = "models/checkpoint_poker_1500000.pt"
-PERCENTAGE = '100_0'
+MODEL = "models/checkpoint_poker_bug_fix_1500000.pt"
+PERCENTAGE = "100_0"
 try:
     checkpoint = torch.load(MODEL)
 except FileNotFoundError:
@@ -56,9 +57,9 @@ else:
     dqn = model_class.custom_load(checkpoint[PERCENTAGE])
     render(
         env,
-        lambda state: dqn(
-            torch.tensor(state, dtype=torch.float).unsqueeze(0)
-        ).argmax().item(),
+        lambda state: dqn(torch.tensor(state, dtype=torch.float).unsqueeze(0))
+        .argmax()
+        .item(),
         pvp=True,
         mutiple_rounds=True,
     )

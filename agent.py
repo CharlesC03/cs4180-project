@@ -466,14 +466,17 @@ def train_dqn(
     #     and len(env.observation_space.shape) == 1
     # )
 
-    assert len(env.state_shape) == 1
+    # assert len(env.state_shape) == 1
 
     # Get the state_size from the environment
-    state_size = env.state_shape[0]
+    state_size = env.state_size
 
     # Initialize the DQN and DQN-target models
     dqn_model = model(
-        state_size, 4, num_layers=model_num_layers, hidden_dim=model_hidden_dim
+        state_size,
+        env.action_space,
+        num_layers=model_num_layers,
+        hidden_dim=model_hidden_dim,
     )
     dqn_target = model.custom_load(dqn_model.custom_dump())
 
