@@ -31,6 +31,9 @@ def render(env: PokerEnvironment, policy=None, pvp=False, mutiple_rounds=False):
             print(f"AI action: {action_str_mapping[action]}")
         player, next_state, reward, terminated = env.step(action)
         # if not pvp or env.round == 4 or player == 0:
+        print(
+            f"Player: {player}, State: {next_state}, Reward: {reward}, Terminated: {terminated}"
+        )
         env.render()
         state = next_state
         if terminated:

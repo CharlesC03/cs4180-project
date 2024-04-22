@@ -45,7 +45,7 @@ class PokerEnvironment:
     """The PokerEnvironment class implements a simplified version of the Texas Hold'em poker game."""
 
     def __init__(
-        self, num_players=2, minimum_bet=0.5, stash_size=10, little_blind=False
+        self, num_players=2, minimum_bet=0.5, stash_size=10, even_stashes=True, little_blind=False
     ):
         """
         Initializes an instance of the PokerEnvironment class.
@@ -58,9 +58,18 @@ class PokerEnvironment:
         """
         self.num_players = num_players
         self.init_stash_size = stash_size
-        self.players_stash = np.array(
-            [self.init_stash_size for _ in range(num_players)], dtype=np.float64
-        )  # Initial stash for each player
+        self.total_stash_size = self.init_stash_size * self.num_players
+        if even_stashes:
+            self.players_stash = np.array(
+                [self.init_stash_size for _ in range(num_players)], dtype=np.float64
+            )  # Initial stash for each player
+        else:
+            total = self.init_stash_size * self.num_players
+            self.players_stash = np.zeros(num_players, dtype=np.float64)
+            for i in range(num_players):
+                amount = random.randint(0, total)
+                self.players_stash[i] = amount
+                total -= amount
         self.initial_player_stashes = self.players_stash.copy()
         self.active_players = []
         self.pot = 0
@@ -241,6 +250,8 @@ class PokerEnvironment:
         Returns:
             list[int]: List of player numbers with the best hand.
         """
+        if len(players) == 1:
+            return players
         best_players = []
         best_hand_rating = 9
         best_rank = None
@@ -493,6 +504,17 @@ class PokerEnvironment:
             for player in range(self.num_players)
         }
 
+    def __start_returns(self):
+        winners = (
+            self.__best_player_hand(self.active_players)
+            if len(self.active_players) > 1
+            else self.active_players
+        )
+        self.__pot_to_stash(winners)
+        self.current_player = self.leader
+        self.current_player = self.__get_next_player()
+        self.round = 4
+
     def step(self, action):
         """
         Perform a step in the game environment.
@@ -520,8 +542,19 @@ class PokerEnvironment:
                 done,
             )
 
+        if self.round == 0 and self.bet_leader == self.current_player:
+            self.current_bet = self.minimum_bet
+            self.__call_player(self.current_player)
+        elif (
+            self.little_blind
+            and self.round == 0
+            and self.bet_leader == self.__get_last_active_player()
+        ):
+            little_blind = self.minimum_bet / 2
+            self.__stash_to_pot(self.current_player, little_blind)
+
         if len(self.active_players) == 1 or (
-            self.current_player == self.bet_leader
+            self.__get_next_active_player() == self.bet_leader
             and all([self.__player_diff_pot(p) == 0 for p in self.active_players])
         ):
             # No active players remaining (all have folded or game is over)
@@ -544,17 +577,6 @@ class PokerEnvironment:
         # Ensure that self.current_player is still in active_players
         if self.current_player not in self.active_players:
             raise ValueError("Current player is not active")
-
-        if self.round == 0 and self.bet_leader == self.current_player:
-            self.current_bet = self.minimum_bet
-            self.__call_player(self.current_player)
-        elif (
-            self.little_blind
-            and self.round == 0
-            and self.bet_leader == self.__get_last_active_player()
-        ):
-            little_blind = self.minimum_bet / 2
-            self.__stash_to_pot(self.current_player, little_blind)
 
         if action == 0:  # Fold
             # Player folds and is removed from active players
@@ -586,10 +608,7 @@ class PokerEnvironment:
 
         # Check if the betting round or game is over
         if self.current_player == self.bet_leader:
-            if self.round == 4:
-                if not self.game_over:
-                    self.__set_next_leader()
-            elif self.round == 3:
+            if self.round == 3:
                 winners = self.__best_player_hand(self.active_players)
                 self.__pot_to_stash(winners)
                 self.current_player = self.leader
