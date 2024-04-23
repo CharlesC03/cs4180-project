@@ -45,7 +45,12 @@ class PokerEnvironment:
     """The PokerEnvironment class implements a simplified version of the Texas Hold'em poker game."""
 
     def __init__(
-        self, num_players=2, minimum_bet=0.5, stash_size=10, even_stashes=True, little_blind=False
+        self,
+        num_players=2,
+        minimum_bet=0.5,
+        stash_size=10,
+        even_stashes=True,
+        little_blind=False,
     ):
         """
         Initializes an instance of the PokerEnvironment class.
@@ -75,7 +80,7 @@ class PokerEnvironment:
         self.pot = 0
         self.deck = None
         self.community_cards = None
-        self.current_bet = None
+        self.current_bet = 0
         self.active_player_bets = np.zeros(self.num_players)
         self.minimum_bet = minimum_bet
         self.little_blind = little_blind
@@ -354,6 +359,8 @@ class PokerEnvironment:
         self.pot += amount
         self.active_player_bets[player] += amount
         self.players_stash[player] -= amount
+        if self.active_player_bets.max() > self.current_bet:
+            print(amount, self.active_player_bets, self.current_bet)
 
     def __pot_to_stash(self, players):
         """
@@ -433,7 +440,9 @@ class PokerEnvironment:
         Returns:
         int: The reward for the player, calculated as the difference between the player's current stash and their initial stash.
         """
-        return self.players_stash[player] - self.initial_player_stashes[player]
+        return (
+            self.players_stash[player] - self.initial_player_stashes[player]
+        ) / self.total_stash_size
 
     def __fold_player(self, player):
         """
@@ -464,7 +473,8 @@ class PokerEnvironment:
         self.__stash_to_pot(player, self.__player_diff_pot(player))
 
     def __player_diff_pot(self, player):
-        return self.current_bet - self.active_player_bets[player]
+        assert self.current_bet >= self.active_player_bets[player]
+        return max(self.current_bet - self.active_player_bets[player], 0)
 
     def __raise_player(self, player, amount=None):
         """
@@ -478,19 +488,30 @@ class PokerEnvironment:
             None
         """
         # set the amount to raise to, with either the minimum bet or double the current bet (if not enough money goes all in)
-        new_bet = self.current_bet + min(
-            self.players_stash[player],
-            max(self.minimum_bet, self.current_bet if amount is None else amount),
+        new_bet = (
+            min(
+                self.players_stash[player] + self.active_player_bets[player],
+                self.current_bet + max(self.minimum_bet, self.current_bet),
+            )
+            if amount is None
+            else amount + self.active_player_bets[player]
         )
+
+        # if the raise is greater than the current bet, set the current bet to the raise and the bet leader to the player
+        if new_bet > self.current_bet:
+            self.current_bet = new_bet
+            self.bet_leader = player
+
         # add the raise to the pot
         self.__stash_to_pot(
             player,
             new_bet - self.active_player_bets[player],
         )
-        # if the raise is greater than the current bet, set the current bet to the raise and the bet leader to the player
-        if new_bet > self.current_bet:
-            self.current_bet = new_bet
-            self.bet_leader = player
+
+        if self.active_player_bets.max() != self.current_bet:
+            raise ValueError(
+                f"Raise failed: {self.active_player_bets}, {self.current_bet}"
+            )
 
     def __get_players_rewards(self):
         """
@@ -542,27 +563,22 @@ class PokerEnvironment:
                 done,
             )
 
-        if self.round == 0 and self.bet_leader == self.current_player:
+        if self.round == 0 and self.leader == self.current_player:
             self.current_bet = self.minimum_bet
             self.__call_player(self.current_player)
-        elif (
-            self.little_blind
-            and self.round == 0
-            and self.bet_leader == self.__get_last_active_player()
-        ):
-            little_blind = self.minimum_bet / 2
-            self.__stash_to_pot(self.current_player, little_blind)
+        # elif (
+        #     self.little_blind
+        #     and self.round == 0
+        #     and self.leader == self.__get_last_active_player()
+        # ):
+        #     little_blind = self.minimum_bet / 2
+        #     self.__stash_to_pot(self.current_player, little_blind)
 
-        if len(self.active_players) == 1 or (
-            self.__get_next_active_player() == self.bet_leader
-            and all([self.__player_diff_pot(p) == 0 for p in self.active_players])
+        if len(self.active_players) == 1 or all(
+            [self.__player_diff_pot(p) == 0 for p in self.active_players]
         ):
             # No active players remaining (all have folded or game is over)
-            winners = (
-                self.__best_player_hand(self.active_players)
-                if len(self.active_players) > 1
-                else self.active_players
-            )
+            winners = self.__best_player_hand(self.active_players)
             self.__pot_to_stash(winners)
             self.current_player = self.leader
             self.current_player = self.__get_next_player()
@@ -583,6 +599,8 @@ class PokerEnvironment:
             self.__fold_player(self.current_player)
         elif action == 1:  # Call
             self.__call_player(self.current_player)
+            if self.active_player_bets.max() != self.current_bet:
+                print(self.active_player_bets, self.current_bet)
         elif action == 2:  # Raise
             self.__raise_player(self.current_player)
         elif action == 3:  # All-in
@@ -592,6 +610,9 @@ class PokerEnvironment:
         else:
             raise ValueError(f"Invalid action: {action}")
 
+        if self.active_player_bets.max() != self.current_bet:
+            print(self.active_player_bets, self.current_bet)
+
         # Perform other actions based on the chosen action (Call, Raise, All-in)
         # Move to the next active player
         self.current_player = (
@@ -599,6 +620,8 @@ class PokerEnvironment:
             if self.next_player != -1
             else self.__get_next_active_player()
         )
+
+        self.next_player = -1
 
         while (
             self.current_player != self.bet_leader
@@ -608,7 +631,11 @@ class PokerEnvironment:
 
         # Check if the betting round or game is over
         if self.current_player == self.bet_leader:
-            if self.round == 3:
+            if (
+                self.round == 3
+                or len(self.active_players) == 1
+                or all([self.__player_diff_pot(p) == 0 for p in self.active_players])
+            ):
                 winners = self.__best_player_hand(self.active_players)
                 self.__pot_to_stash(winners)
                 self.current_player = self.leader
@@ -680,13 +707,14 @@ class PokerEnvironment:
         If the round is 3 or there is only one active player remaining, it prints the winners, pot, rewards, and new leader.
         Otherwise, it prints the round number, current player, stash, hands, and community cards.
         """
-        print(
-            f"Round: {self.round}, Current Player: {self.current_player}, Pot:{self.pot}, Stashes: {[f'{player}: {self.players_stash[player]}' for player in range(self.num_players)]}, Hand: {', '.join([card_to_str(card) for card in self.hands[self.current_player]])}, Community Cards: {[f'{card.suit}{card.rank}' for card in self.__get_community_cards()]}"
-        )
-        if self.round == 4 or len(self.active_players) == 1:
+        if self.round == 4 and self.leader == self.__get_last_player():
             print(
                 f"Winners: {self.__best_player_hand(self.active_players)}, Pot: {self.pot}, Rewards: {self.__get_players_rewards()}, New Leader: {self.leader}"
             )
+
+        print(
+            f"Round: {self.round}, Current Player: {self.current_player}, Pot:{self.pot}, Stashes: {[f'{player}: {self.players_stash[player]}' for player in range(self.num_players)]}, Hand: {', '.join([card_to_str(card) for card in self.hands[self.current_player]])}, Community Cards: {[f'{card.suit}{card.rank}' for card in self.__get_community_cards()]}"
+        )
 
     def random_action(self):
         return np.random.randint(0, 4)
@@ -701,17 +729,20 @@ class PokerEnvironment:
 
 
 # # To run
-# if __name__ == "__main__":
-#     # for _ in range(int(1e6)):
-#     env = PokerEnvironment(2)
-#     while not env.game_over:
-#         state = env.reset()
-#         done = False
-#         # Need DQN agent
-#         while not done:
-#             action = env.random_action()  # Random action for now
-#             print(f"Action: {action}")
-#             player, state, reward, done = env.step(action)
-#             print(
-#                 f"Round: {env.round}, Action: {action}, Player: {player}, State: {state}, Reward: {reward}, Done: {done}"
-#             )
+if __name__ == "__main__":
+    for _ in range(int(1e6)):
+        env = PokerEnvironment(2)
+        while not env.game_over:
+            state = env.reset()
+            done = False
+            # Need DQN agent
+            action = 0
+            while not done:
+                action = (
+                    env.random_action() if action != 3 else 1
+                )  # Random action for now
+                print(f"Action: {action}")
+                player, state, reward, done = env.step(action)
+                print(
+                    f"Round: {env.round}, Action: {action}, Player: {player}, State: {state}, Reward: {reward}, Done: {done}"
+                )
