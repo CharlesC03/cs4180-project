@@ -309,7 +309,7 @@ class DQN(nn.Module):
         for layer in self.hidden_layers:
             x = layer(x)
         x = self.final_hidden_layer(x)
-        x = F.relu(x)
+        x = F.softmax(x, dim=1)
         x = nn.Identity()(x)
         return x
 
