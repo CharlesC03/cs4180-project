@@ -478,6 +478,8 @@ def train_dqn(
         num_layers=model_num_layers,
         hidden_dim=model_hidden_dim,
     )
+    dqn_models = [copy.deepcopy(dqn_model) for _ in range(env.num_players)]
+
     dqn_target = model.custom_load(dqn_model.custom_dump())
 
     # Initialize the optimizer

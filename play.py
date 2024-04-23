@@ -49,7 +49,7 @@ buttons_all = []
 model_class = DQN(18, 4)
 env = PokerEnvironment()
 # PVP = False
-MODEL = "models/checkpoint_poker_bug_fix_1500000.pt"
+MODEL = "./models/checkpoint_poker_bug_fix_8x512_1500000.pt"
 PERCENTAGE = "100_0"
 try:
     checkpoint = torch.load(MODEL)
