@@ -474,7 +474,7 @@ class PokerEnvironment:
 
     def __player_diff_pot(self, player):
         assert self.current_bet >= self.active_player_bets[player]
-        return max(self.current_bet - self.active_player_bets[player], 0)
+        return self.current_bet - self.active_player_bets[player]
 
     def __raise_player(self, player, amount=None):
         """
@@ -508,7 +508,7 @@ class PokerEnvironment:
             new_bet - self.active_player_bets[player],
         )
 
-        if self.active_player_bets.max() != self.current_bet:
+        if self.active_player_bets.max() > self.current_bet:
             raise ValueError(
                 f"Raise failed: {self.active_player_bets}, {self.current_bet}"
             )
@@ -563,7 +563,11 @@ class PokerEnvironment:
                 done,
             )
 
-        if self.round == 0 and self.leader == self.current_player:
+        if (
+            self.round == 0
+            and self.leader == self.bet_leader
+            and self.leader == self.current_player
+        ):
             self.current_bet = self.minimum_bet
             self.__call_player(self.current_player)
         # elif (
@@ -599,8 +603,6 @@ class PokerEnvironment:
             self.__fold_player(self.current_player)
         elif action == 1:  # Call
             self.__call_player(self.current_player)
-            if self.active_player_bets.max() != self.current_bet:
-                print(self.active_player_bets, self.current_bet)
         elif action == 2:  # Raise
             self.__raise_player(self.current_player)
         elif action == 3:  # All-in
@@ -609,9 +611,6 @@ class PokerEnvironment:
             )
         else:
             raise ValueError(f"Invalid action: {action}")
-
-        if self.active_player_bets.max() != self.current_bet:
-            print(self.active_player_bets, self.current_bet)
 
         # Perform other actions based on the chosen action (Call, Raise, All-in)
         # Move to the next active player
@@ -700,7 +699,7 @@ class PokerEnvironment:
         self.current_player = self.bet_leader
         self.round += 1
 
-    def render(self, action="N/A"):
+    def render(self):
         """
         Prints the current state of the game.
 
@@ -741,8 +740,8 @@ if __name__ == "__main__":
                 action = (
                     env.random_action() if action != 3 else 1
                 )  # Random action for now
-                print(f"Action: {action}")
+                # print(f"Action: {action}")
                 player, state, reward, done = env.step(action)
-                print(
-                    f"Round: {env.round}, Action: {action}, Player: {player}, State: {state}, Reward: {reward}, Done: {done}"
-                )
+                # print(
+                #     f"Round: {env.round}, Action: {action}, Player: {player}, State: {state}, Reward: {reward}, Done: {done}"
+                # )
