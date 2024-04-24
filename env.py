@@ -154,9 +154,13 @@ class PokerEnvironment:
             i for i in range(self.num_players) if self.players_stash[i] > 0
         ]
         self.next_player = -1
-        self.current_bet = 0
+        self.current_bet = self.minimum_bet
         self.active_player_bets = np.zeros(self.num_players)
         self.round = 0  # Round 0 is before flop
+        self.__call_player(self.current_player)
+        if self.little_blind:
+            little_blind = self.minimum_bet / 2
+            self.__stash_to_pot(self.__get_next_active_player(), little_blind)
         return self.current_player, self.__get_player_state(self.current_player)
 
     def reset_deck(self):
@@ -563,23 +567,12 @@ class PokerEnvironment:
                 done,
             )
 
-        if (
-            self.round == 0
-            and self.leader == self.bet_leader
-            and self.leader == self.current_player
-        ):
-            self.current_bet = self.minimum_bet
-            self.__call_player(self.current_player)
-        # elif (
-        #     self.little_blind
-        #     and self.round == 0
-        #     and self.leader == self.__get_last_active_player()
-        # ):
-        #     little_blind = self.minimum_bet / 2
-        #     self.__stash_to_pot(self.current_player, little_blind)
-
         if len(self.active_players) == 1 or all(
-            [self.__player_diff_pot(p) == 0 for p in self.active_players]
+            [
+                self.players_stash[p] == 0
+                for p in self.active_players
+                if p != self.bet_leader
+            ]
         ):
             # No active players remaining (all have folded or game is over)
             winners = self.__best_player_hand(self.active_players)
@@ -624,7 +617,7 @@ class PokerEnvironment:
 
         while (
             self.current_player != self.bet_leader
-            and self.__player_diff_pot(self.current_player) == 0
+            and self.players_stash[self.current_player] == 0
         ):
             self.current_player = self.__get_next_active_player()
 
@@ -633,7 +626,7 @@ class PokerEnvironment:
             if (
                 self.round == 3
                 or len(self.active_players) == 1
-                or all([self.__player_diff_pot(p) == 0 for p in self.active_players])
+                or all([self.players_stash[p] == 0 for p in self.active_players])
             ):
                 winners = self.__best_player_hand(self.active_players)
                 self.__pot_to_stash(winners)
