@@ -1,5 +1,6 @@
 from collections import namedtuple
 import copy
+import random
 import numpy as np
 
 import torch
@@ -200,31 +201,43 @@ class ReplayMemory:
         # populate the replay memory with the resulting transitions.
         # Hint: Use the self.add() method.
 
-        for _ in range(num_steps):
-            prev_states = [None] * self.num_players
-            player, states = env.reset()
-            prev_states[player] = states
+        t_step = 0
+
+        while t_step < num_steps:
+            prev_states = list()
+            player, player_state = env.reset()
+            action = env.random_action()
             for player in range(self.num_players):
+                prev_states.append(player_state)
                 action = env.random_action()
                 player, player_state, rewards, dones = env.step(action)
-                prev_states[player] = player_state
+            self.add(
+                player,
+                prev_states[0],
+                action,
+                rewards,
+                player_state,
+                env.round == 4,  # MARK: This may cause problems
+            )
+            prev_states[0] = player_state
             done = False
-            while done:
-                actions = env.random_action()
+            while not done:
+                action = env.random_action()
                 player, player_state, rewards, done = env.step(
-                    actions
+                    action
                 )  # MARK: Update this to work with multiple players
                 self.add(
                     player,
                     prev_states[player],
-                    actions[player],
-                    rewards[player],
+                    action,
+                    rewards,
                     player_state,
                     env.round == 4,  # MARK: This may cause problems
                 )
                 prev_states[player] = player_state
-
-                states = player_state
+                t_step += 1
+                if t_step >= num_steps:
+                    break
         # state = {}
         # player, state, _ = env.reset()
         # for _ in range(num_steps):
@@ -486,7 +499,7 @@ def train_dqn(
     optimizer = torch.optim.Adam(dqn_model.parameters())
 
     # Initialize the replay memory and prepopulate it
-    memory = ReplayMemory(replay_size, state_size, 2)
+    memory = ReplayMemory(replay_size, state_size, env.num_players)
     memory.populate(env, replay_prepopulate_steps)
 
     # Initialize lists to store returns, lengths, and losses
@@ -508,6 +521,10 @@ def train_dqn(
 
     prev_states[player] = state
     G = np.zeros(env.num_players, dtype=float)
+
+    num_steps_to_training = 4 * env.num_players
+
+    update_target_steps = 10_000 * env.num_players
 
     # Iterate for a total of `num_steps` steps
     pbar = tqdm.trange(num_steps)
@@ -543,7 +560,7 @@ def train_dqn(
         #  * sample a batch from the replay memory
         #  * perform a batch update (use the train_dqn_batch() method)
 
-        if t_total % 4 == 0:
+        if t_total % num_steps_to_training == 0:
             batch = memory.sample(batch_size)
             loss = train_dqn_batch(optimizer, batch, dqn_model, dqn_target, gamma)
             losses.append(loss)
@@ -552,8 +569,17 @@ def train_dqn(
         #  * update the target network (use the dqn_model.state_dict() and
         #    dqn_target.load_state_dict() methods)
 
-        if t_total % 10_000 == 0:
+        if t_total % update_target_steps == 0:
             dqn_target.load_state_dict(dqn_model.state_dict())
+            if t_total % (update_target_steps * 2) == 0:
+                # randomize the agents
+                random_player = np.random.randint(env.num_players)
+                dqn_models[random_player].load_state_dict(dqn_model.state_dict())
+                for i in range(env.num_players):
+                    if i != random_player:
+                        dqn_models[i].load_state_dict(
+                            random.choice(list(saved_models.values())).state_dict()
+                        )
 
         if done:
             # YOUR CODE HERE: Anything you need to do at the end of an episode,

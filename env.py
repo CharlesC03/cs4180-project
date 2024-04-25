@@ -64,6 +64,7 @@ class PokerEnvironment:
         self.num_players = num_players
         self.init_stash_size = stash_size
         self.total_stash_size = self.init_stash_size * self.num_players
+        self.even_stashes = even_stashes
         if even_stashes:
             self.players_stash = np.array(
                 [self.init_stash_size for _ in range(num_players)], dtype=np.float64
@@ -72,9 +73,11 @@ class PokerEnvironment:
             total = self.init_stash_size * self.num_players
             self.players_stash = np.zeros(num_players, dtype=np.float64)
             for i in range(num_players):
-                amount = random.randint(0, total)
+                amount = random.randint(1, total + num_players - i - 1)
                 self.players_stash[i] = amount
                 total -= amount
+            if total > 0:
+                self.players_stash[np.random.randint(0, num_players - 1)] += total
         self.initial_player_stashes = self.players_stash.copy()
         self.active_players = []
         self.pot = 0
@@ -126,8 +129,9 @@ class PokerEnvironment:
             (self.bet_leader - player + self.num_players) % self.num_players,
             *cards_to_ints(self.__get_community_cards(), 5),
             *cards_to_ints(self.hands[player], 2),
-            *self.players_stash,
-            self.current_bet - self.active_player_bets[player],
+            *[money / self.total_stash_size for money in self.players_stash],
+            (self.current_bet - self.active_player_bets[player])
+            / self.total_stash_size,
         )
 
     def reset(self):
@@ -477,7 +481,7 @@ class PokerEnvironment:
         self.__stash_to_pot(player, self.__player_diff_pot(player))
 
     def __player_diff_pot(self, player):
-        assert self.current_bet >= self.active_player_bets[player]
+        # assert self.current_bet >= self.active_player_bets[player]
         return self.current_bet - self.active_player_bets[player]
 
     def __raise_player(self, player, amount=None):
@@ -715,15 +719,21 @@ class PokerEnvironment:
         pass
 
     def full_reset(self):
+        # print("here")
         self.__init__(
-            self.num_players, self.minimum_bet, self.init_stash_size, self.little_blind
+            num_players=self.num_players,
+            minimum_bet=self.minimum_bet,
+            stash_size=self.init_stash_size,
+            even_stashes=self.even_stashes,
+            little_blind=self.little_blind,
         )
 
 
 # # To run
 if __name__ == "__main__":
+    env = PokerEnvironment(2)
     for _ in range(int(1e6)):
-        env = PokerEnvironment(2)
+        env.full_reset()
         while not env.game_over:
             state = env.reset()
             done = False
